@@ -36,6 +36,7 @@
   "files": [
     "src/",
     "README.zh.md",
+    "CHANGELOG.md",
     "CONTRIBUTING.md",
     "docs/assets/agy-hub-terminal-preview.png",
     "docs/configuration.md",

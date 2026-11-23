@@ -134,4 +134,4 @@ npm ci
 npm run check
 ```
 
-[贡献指南](CONTRIBUTING.md) · [工程架构](docs/architecture.md) · [MIT 许可证](LICENSE)
+[贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md) · [工程架构](docs/architecture.md) · [MIT 许可证](LICENSE)
