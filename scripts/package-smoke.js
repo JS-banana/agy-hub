@@ -82,7 +82,7 @@ try {
   const packedPaths = new Set(packed.files.map(({ path }) => path));
   for (const path of [
     'README.md', 'README.zh.md', 'CONTRIBUTING.md', 'LICENSE',
-    'docs/integration.md', 'docs/architecture.md', 'docs/assets/agy-hub-terminal-preview.png',
+    'docs/configuration.md', 'docs/integration.md', 'docs/architecture.md', 'docs/assets/agy-hub-terminal-preview.png',
     'src/cli.js', 'skills/agy-hub/SKILL.md',
   ]) {
     assert.ok(packedPaths.has(path), `The release archive must contain ${path}`);

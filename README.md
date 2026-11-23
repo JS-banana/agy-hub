@@ -2,35 +2,70 @@
 
 [简体中文](README.zh.md)
 
-AGY Hub is a configurable status line for the Antigravity CLI (`agy`). It shows the active model, project, Git branch, context usage, and model quota. On narrower terminals, the HUD shortens progress bars and wraps rows.
+[![CI](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml)
+[![Node.js >= 22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![AGY Hub in Antigravity CLI showing the model, session cost, Git branch, context usage, and quotas](docs/assets/agy-hub-terminal-preview.png)
+AGY Hub is a configurable terminal status line for the Antigravity CLI (`agy`). It keeps your active model, context usage, quota reset countdowns, session cost, Git/Jujutsu status, and live tool/subagent activity visible at a glance—and adapts automatically to narrow terminals.
 
-## Install
+![AGY Hub in Antigravity CLI showing the model, estimated session cost, Git branch, agent mode, context usage, and 5-hour and weekly quotas](docs/assets/agy-hub-terminal-preview.png)
 
-Requires macOS or Linux, Node.js 22 or later, and an `agy` version that supports custom status lines. AGY Hub runs directly from a local copy with Node.js.
+## Features
 
-### Ask an agent
+- **Context & quota**: Live usage bars with warning thresholds, plus 5-hour and weekly quota reset countdowns.
+- **Cost & tokens**: Session cost with local standard API rate estimates (`≈$x.xx`) when omitted, plus optional daily/weekly totals and cache stats.
+- **Tools & subagents**: Real-time running and completed tools, Skills, MCP calls, and subagent status.
+- **Model & VCS**: Active model, agent mode, Git branch and change stats, plus optional Jujutsu (`jj`) support.
+- **Lightweight & reversible**: Narrow-terminal adaptation, EN/ZH labels, zero runtime dependencies on Node.js 22+, automatic backup, and one-command undo/uninstall.
 
-Give this request to your coding agent.
+## Layouts
+
+Three built-in presets cover common terminal sizes (tested below with `node src/cli.js preview --preset <name> --plain`):
+
+**`default`** — two-row view with model, project, Git, context, and quota:
 
 ```text
-Set up AGY Hub for my Antigravity CLI from https://github.com/JS-banana/agy-hub. Reuse my checkout or clone it to ~/.local/share/agy-hub. Run node src/cli.js from that copy, skip npm installation, and preview the setup before enabling it. Register /agy-hub for future sessions and ask before replacing another status line.
+[Gemini 3.8 Flash] │ my-project git:(main*)
+Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
-### Install the skill first
+**`compact`** — fits project and metrics onto one line when width allows:
 
-Save the [raw SKILL.md](https://raw.githubusercontent.com/JS-banana/agy-hub/main/skills/agy-hub/SKILL.md) to `~/.gemini/antigravity-cli/skills/agy-hub/SKILL.md`, or ask your agent to do it. Keep any existing skill file at that path. If you already have a checkout, run `node src/cli.js skill install` from its root to register its local CLI with the skill.
+```text
+[Gemini 3.8 Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
+```
 
-Start a new `agy` session or run `/skills reload` in an existing interactive session. Then enter the following request. The skill helps set up a local copy if one is needed.
+**`activity`** — adds a divider with live tool calls and subagent status:
+
+```text
+[Gemini 3.8 Flash] │ my-project git:(main*)
+Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
+────────────────────────────────────────────────────────────────
+◐ Edit: auth.ts | ✓ Read ×3 | ✓ Grep ×2
+◐ explore [Gemini Flash]: Finding auth code
+```
+
+On narrow terminals, bars shorten and rows wrap automatically (`node src/cli.js preview --width 60 --plain` to test).
+
+## Quick Start
+
+Requires **macOS or Linux**, **Node.js 22+**, and an **`agy` version that supports custom status lines**. Keep the local checkout at a stable path because `agy` invokes it by absolute path.
+
+### Option 1: Ask your coding agent (Recommended)
+
+Send this prompt to your coding agent:
+
+```text
+Set up AGY Hub for my Antigravity CLI following skills/agy-hub/SKILL.md in https://github.com/JS-banana/agy-hub. Preview the HUD before enabling it and register /agy-hub.
+```
+
+If `/agy-hub` is already installed, run:
 
 ```text
 /agy-hub Install the HUD and show me the preview first
 ```
 
-### Run the wizard yourself
-
-Clone the project into a stable directory. If you already have a checkout, open its root and run the last command.
+### Option 2: Interactive terminal wizard
 
 ```sh
 mkdir -p "$HOME/.local/share"
@@ -39,79 +74,64 @@ cd "$HOME/.local/share/agy-hub"
 node src/cli.js setup
 ```
 
-The wizard previews the layout, tool activity, subagents, and Git file stats you choose. If another status line is configured, setup confirms before backing it up and replacing it. Start a new `agy` session after confirming.
+The wizard lets you preview layouts and toggle options before applying, backs up any existing status line after confirming replacement, and takes effect in your next `agy` session.
 
-For a one-session trial, run `agy --settings "$(node src/cli.js settings)"` from the local copy. When a version is available on [GitHub Releases](https://github.com/JS-banana/agy-hub/releases), you can unpack its `.tgz` in a stable location and run `node src/cli.js setup` from the extracted package directory. Keep the local copy at its installed path because `agy` calls it by absolute path.
+**Try for one session without installing:**
 
-## Configure the HUD
-
-Run the `node src/cli.js` commands below from the root of the local copy. Use `node src/cli.js setup --configure-only` to reopen the wizard. Its prompts default to English. Use `--prompt-language zh-Hans` or `--prompt-language zh-Hant` for Chinese prompts in that invocation. The HUD uses its own `language` setting.
-
-Run `node src/cli.js preview --preset activity` to see an example. Add `--width 60` for a narrow layout or `--plain` for output without color.
-
-| Preset | Layout |
-| --- | --- |
-| `default` | Two rows with the model, project, Git, context, and quota |
-| `compact` | Keeps project and usage on the same row when space allows |
-| `activity` | Adds tools and subagents to the expanded layout |
-
-### Configure with an agent
-
-Once the skill is loaded, you can ask for changes from any workspace.
-
-```text
-/agy-hub Use the compact layout and show tools and subagents
+```sh
+agy --settings "$(node src/cli.js settings)"
 ```
 
-Agents and scripts can use `node src/cli.js setup --dry-run --json` to inspect a preview and plan. Pass `--preset` or `--set '<JSON>'` to propose settings. Reuse the same arguments with `--yes` to apply them. Use `--configure-only` to edit the HUD settings and `--replace` to authorize replacing another status line.
+## Customize
 
-`preview --preset` starts from the defaults, while `setup --preset` merges the preset's options into your current configuration. When you enable tools, subagents, skills, or MCP through `setup`, the wizard adds any missing rows to the expanded layout. Pass `elementOrder` to specify the full row order.
+Once `/agy-hub` is loaded, ask for changes in plain language from any workspace:
 
-### Advanced settings
+```text
+/agy-hub Enable cost estimates, always show weekly quota, and show tools and subagents
+```
 
-The default config path is `~/.gemini/antigravity-cli/agy-hub.json`. Run `node src/cli.js config path` to see the resolved path or set `AGY_HUB_CONFIG` to use another file. When editing the file, include the settings you want to override.
+Or adjust from the terminal using the wizard (`node src/cli.js setup --configure-only`) or CLI:
 
 ```sh
 node src/cli.js config show
-node src/cli.js config set '{"display":{"showAgents":true}}'
-node src/cli.js config check
+node src/cli.js config set '{"display":{"showCost":true,"sevenDayThreshold":0,"showTools":true}}'
 node src/cli.js config undo
 ```
 
-| Setting | Controls |
-| --- | --- |
-| `language` | HUD labels in English (`en`), Simplified Chinese (`zh-Hans`), or Traditional Chinese (`zh-Hant`) |
-| `elementOrder`, `display.mergeGroups`, `display.rightAlign` | Row order, grouping, and alignment in the expanded layout |
-| `projectLineOrder`, `pathLevels` | Project row fields and directory depth |
-| `gitStatus`, `jjStatus` | Branch, ahead and behind counts, changes, worktree, and optional Jujutsu status |
-| `display` | Context and quota formats, tools, subagents, session tokens, cost, memory, and more |
-| `colors` | Color names, ANSI indexes from 0 to 255, `#rrggbb`, and progress characters. Set `NO_COLOR=1` to disable colors |
+Commonly tuned options:
 
-Enable `display.showCost` to show session cost. When `agy` omits cost, supported models can show an estimate at standard API rates, such as `Cost ≈$0.06`. Enable `display.showAgentModeOnly` for a standalone `Auto mode` or `Plan mode` label. Set `display.sevenDayThreshold` to `0` to show the weekly quota whenever it is available.
+| Setting | Default | What it controls |
+| --- | --- | --- |
+| `lineLayout` | `"expanded"` | `"expanded"` (multi-row) or `"compact"` (single-row when space fits) |
+| `language` | `"en"` | HUD labels: `"en"`, `"zh-Hans"`, or `"zh-Hant"` |
+| `display.showCost` | `false` | Show session cost, estimating locally (`≈$x.xx`) when `agy` omits it |
+| `display.showTools` / `showAgents` | `false` | Show live/completed tools and running/finished subagents |
+| `display.sevenDayThreshold` | `80` | 5h usage % at which weekly quota appears (`0` shows whenever available) |
+| `gitStatus.showFileStats` | `false` | Show changed file counts and line diffs next to the Git branch |
 
-Run `node src/cli.js config schema` to see every default. To generate a JSON Schema for your editor, run the following commands.
+See [Configuration reference](docs/configuration.md) for all options, colors, JSON Schema setup, and environment variables, and [Antigravity integration](docs/integration.md) for data sources, API cost rates, and optional hooks.
 
-```sh
-node src/cli.js init
-node src/cli.js config schema --json-schema > "$(dirname "$(node src/cli.js config path)")/agy-hub.schema.json"
-node src/cli.js config set '{"$schema":"./agy-hub.schema.json"}'
-```
+## Diagnostics, Upgrade & Uninstall
 
-`agy` provides the model, context, quota, and subagents. AGY Hub can read the local session log for tool activity. Optional hooks supply more detailed events. [Antigravity integration](docs/integration.md)
+- **Check & replay**: Run `node src/cli.js doctor` (or `/agy-hub doctor`) to verify bindings and config, `node src/cli.js report` for an anonymized diagnostic summary, or `node src/cli.js preview --last` to replay the last recorded frame.
+- **Upgrade**: Pull updates and refresh bindings from your AGY Hub directory:
+  ```sh
+  git pull --ff-only
+  node src/cli.js install
+  node src/cli.js skill install # if using /agy-hub
+  ```
+- **Temporary disable**: Run `AGY_HUB_DISABLE=1 agy`.
+- **Uninstall**: Restore your previous status line configuration:
+  ```sh
+  node src/cli.js skill uninstall # if installed
+  node src/cli.js uninstall
+  ```
 
-## Troubleshoot, upgrade, or uninstall
-
-- Use `node src/cli.js doctor` to check configuration and command paths, or `node src/cli.js report` for a diagnostic summary. With `display.recordPreview` enabled, use `node src/cli.js preview --last` to replay the previous frame.
-- To upgrade a checkout, run `git pull --ff-only`. For a release archive, unpack the new version into a stable directory. From the updated copy, run `node src/cli.js install` to refresh the binding and `node src/cli.js skill install` if you use the skill. Run both commands again if the Node executable or local copy moves. The skill installer preserves local edits.
-- Run `AGY_HUB_DISABLE=1 agy` to start a session with the HUD disabled. To remove AGY Hub, run `node src/cli.js skill uninstall` if you use the skill, then `node src/cli.js uninstall` to restore the prior status line. You can remove the local copy after those commands finish.
-
-## Development
+## Development & License
 
 ```sh
 npm ci
 npm run check
 ```
 
-Checks cover types, behavior, renderer boundaries, and setup and recovery from a locally extracted release archive. [Contributing and releases](CONTRIBUTING.md) · [Architecture](docs/architecture.md)
-
-AGY Hub is MIT-licensed. [License and attribution](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [MIT License](LICENSE)
