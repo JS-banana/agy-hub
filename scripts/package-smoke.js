@@ -29,9 +29,9 @@ const env = {
 };
 delete env.AGY_HUB_DISABLE;
 
-function run(executable, args, { input, allowFailure = false } = {}) {
+function run(executable, args, { input, allowFailure = false, cwd = sandbox } = {}) {
   const result = spawnSync(executable, args, {
-    cwd: sandbox,
+    cwd,
     env,
     input,
     encoding: 'utf8',
@@ -48,9 +48,18 @@ function run(executable, args, { input, allowFailure = false } = {}) {
 const npmOptions = ['--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', join(sandbox, 'npm-cache'),
   '--userconfig', npmUserConfig, '--globalconfig', npmGlobalConfig];
 
-function installArchive(prefix, archive) {
-  run('npm', ['install', '--global', '--prefix', prefix, ...npmOptions, archive]);
-  return join(prefix, 'bin', 'agy-hub');
+function extractArchive(directory, archive) {
+  mkdirSync(directory);
+  run('tar', ['-xzf', archive, '-C', directory, '--strip-components=1']);
+  return (args, options) => run(process.execPath, [join(directory, 'src', 'cli.js'), ...args], options);
+}
+
+function installedSkillCommand(cli, skill) {
+  const contents = readFileSync(skill, 'utf8');
+  assert.match(contents, /name: agy-hub/);
+  const prefix = /^## Installed command\n\n    ([^\n]+)$/m.exec(contents)?.[1];
+  assert.equal(prefix, JSON.parse(cli(['settings']).stdout).statusLine.command);
+  return prefix;
 }
 
 function settings() {
@@ -75,43 +84,46 @@ try {
     assert.ok(packedPaths.has(path), `The release archive must contain ${path}`);
   }
   const archive = join(archiveDir, packed.filename);
-  const firstPrefix = join(sandbox, 'original install');
-  const first = installArchive(firstPrefix, archive);
-  const preview = run(first, ['preview', '--preset', 'activity', '--plain']).stdout;
+  const firstDirectory = join(sandbox, "original user's install");
+  const first = extractArchive(firstDirectory, archive);
+  const preview = first(['preview', '--preset', 'activity', '--plain']).stdout;
   assert.match(preview, /Context .*Usage /);
   assert.match(preview, /✓ Read/);
   assert.match(preview, /◐ explore/);
   assert.ok(!existsSync(configPath), 'Preview should leave configuration untouched');
 
-  run(first, ['init', '--preset', 'activity']);
-  assert.equal(JSON.parse(run(first, ['config', 'check']).stdout).valid, true);
-  const schema = JSON.parse(run(first, ['schema', '--json-schema']).stdout);
+  first(['init', '--preset', 'activity']);
+  assert.equal(JSON.parse(first(['config', 'check']).stdout).valid, true);
+  const schema = JSON.parse(first(['schema', '--json-schema']).stdout);
   assert.match(schema.$schema, /2020-12/);
   assert.equal(schema.properties.display.properties.showTools.type, 'boolean');
   const initializedConfig = readFileSync(configPath, 'utf8');
-  run(first, ['init', '--preset', 'compact'], { allowFailure: true });
+  first(['init', '--preset', 'compact'], { allowFailure: true });
   assert.equal(readFileSync(configPath, 'utf8'), initializedConfig, 'Init must preserve an existing configuration');
-  const plan = JSON.parse(run(first, ['setup', '--dry-run', '--configure-only', '--preset', 'compact', '--json']).stdout);
+  const plan = JSON.parse(first(['setup', '--dry-run', '--configure-only', '--preset', 'compact', '--json']).stdout);
   assert.match(plan.preview, /45% \| my-project/);
   assert.equal(readFileSync(configPath, 'utf8'), initializedConfig);
-  const skill = run(first, ['skill', 'path']).stdout.trim();
-  run(first, ['skill', 'install']);
-  assert.match(readFileSync(skill, 'utf8'), /name: agy-hub/);
-  run(first, ['skill', 'uninstall']);
-  assert.ok(!existsSync(skill));
+  const skill = first(['skill', 'path']).stdout.trim();
+  first(['skill', 'install']);
+  const originalSkill = installedSkillCommand(first, skill);
+  const agentPlan = run('/bin/sh', ['-c', `${originalSkill} setup --dry-run --configure-only --preset compact --json`], { cwd: workspace });
+  assert.equal(JSON.parse(agentPlan.stdout).preview, plan.preview);
+  assert.ok(!existsSync(settingsPath), 'Registering or previewing through the skill should leave the statusline untouched');
 
   const previousSettings = {
     statusLine: { type: 'command', command: 'printf prior-hud', padding: 2, enabled: false },
     theme: 'original-theme',
   };
   writeFileSync(settingsPath, JSON.stringify(previousSettings));
-  run(first, ['install']);
+  const replacement = run('/bin/sh', ['-c', `${originalSkill} setup --dry-run --json`], { cwd: workspace });
+  assert.equal(JSON.parse(replacement.stdout).needsReplacement, true);
+  run('/bin/sh', ['-c', `${originalSkill} setup --yes --replace`], { cwd: workspace });
   const oldCommand = settings().statusLine.command;
   assert.notEqual(oldCommand, previousSettings.statusLine.command);
   assert.equal(settings().theme, previousSettings.theme);
-  assert.equal(JSON.parse(run(first, ['doctor']).stdout).node, process.versions.node);
+  assert.equal(JSON.parse(first(['doctor']).stdout).node, process.versions.node);
 
-  run(first, ['set', '{"display":{"recordPreview":true,"showAuthUser":true}}']);
+  first(['set', '{"display":{"recordPreview":true,"showAuthUser":true}}']);
   const input = JSON.stringify({
     cwd: workspace,
     model: { display_name: 'Gemini Smoke' },
@@ -125,29 +137,36 @@ try {
   assert.match(live, /\[Gemini Smoke\]/);
   assert.match(live, /Context .*Usage /);
   assert.match(live, /◐ smoke-helper/);
-  const replay = run(first, ['preview', '--last', '--plain']).stdout;
+  const replay = first(['preview', '--last', '--plain']).stdout;
   assert.match(replay, /\[Gemini Smoke\]/);
   assert.doesNotMatch(replay, /private-smoke-/);
-  const report = run(first, ['report']).stdout;
+  const report = first(['report']).stdout;
   assert.doesNotMatch(report, /private-smoke-|original-theme|printf prior-hud/);
   assert.equal(JSON.parse(report).capturedFrame.quota, true);
 
-  const second = installArchive(join(sandbox, 'replacement install'), archive);
-  renameSync(firstPrefix, join(sandbox, 'retired install'));
+  const second = extractArchive(join(sandbox, 'replacement install'), archive);
+  renameSync(firstDirectory, join(sandbox, 'retired install'));
   assert.notEqual(run('/bin/sh', ['-c', oldCommand], { input, allowFailure: true }).status, 0);
-  const stale = JSON.parse(run(second, ['doctor']).stdout);
+  const stale = JSON.parse(second(['doctor']).stdout);
   assert.equal(stale.configuration.valid, true);
   assert.equal(stale.statusline.state, 'broken');
-  run(second, ['install']);
+  second(['install']);
   const newCommand = settings().statusLine.command;
   assert.notEqual(newCommand, oldCommand);
-  assert.equal(JSON.parse(run(second, ['doctor']).stdout).statusline.state, 'active');
+  assert.equal(JSON.parse(second(['doctor']).stdout).statusline.state, 'active');
   assert.match(run('/bin/sh', ['-c', newCommand], { input }).stdout, /\[Gemini Smoke\]/);
+  second(['skill', 'install']);
+  const reboundSkill = installedSkillCommand(second, skill);
+  assert.notEqual(reboundSkill, originalSkill);
+  assert.equal(reboundSkill, newCommand);
+  assert.match(run('/bin/sh', ['-c', `${reboundSkill} preview --plain`], { cwd: workspace }).stdout, /Context/);
+  second(['skill', 'uninstall']);
+  assert.ok(!existsSync(skill));
 
-  run(second, ['uninstall']);
+  second(['uninstall']);
   assert.deepEqual(settings(), previousSettings, 'Uninstall must restore the pre-upgrade statusline and retain other settings');
   assert.ok(!existsSync(`${settingsPath}.agy-hub-backup.json`));
-  console.log('Package verified through preview, config, install, replay, rebind and uninstall.');
+  console.log('Extracted package verified through preview, config, skill registration, install, replay, rebind and uninstall.');
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
 }

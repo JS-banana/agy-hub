@@ -138,9 +138,14 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   assert.equal(run('skill', 'install').status, 0);
   const installed = readFileSync(path, 'utf8');
   assert.match(installed, /name: agy-hub/);
+  assert.match(installed, /## Installed command/);
   assert.equal(run('skill', 'install').status, 0);
   assert.equal(run('skill', 'uninstall').status, 0);
   assert.equal(existsSync(path), false);
+  const bundled = new URL('../skills/agy-hub/SKILL.md', import.meta.url);
+  writeFileSync(path, readFileSync(bundled));
+  assert.match(run('skill', 'install').stdout, /Updated/);
+  assert.equal(readFileSync(path, 'utf8'), installed);
   const previous = '---\nname: agy-hub\ndescription: Old instructions\n---\n';
   const digest = createHash('sha256').update(previous).digest('hex');
   const previousInstall = `${previous}\n<!-- AGY Hub installed SHA-256: ${digest} -->\n`;

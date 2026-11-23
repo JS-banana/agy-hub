@@ -30,10 +30,14 @@ function quoteShell(value) {
 }
 
 /** @param {BindingOptions} [options] */
-function createStatusLine({ executable = process.execPath, script = entryPoint, extraCommand } = {}) {
+export function cliCommand({ executable = process.execPath, script = entryPoint, extraCommand } = {}) {
   const base = `${quoteShell(executable)} ${quoteShell(script)}`;
-  const command = extraCommand === undefined ? base : `${base} --extra-cmd ${quoteShell(extraCommand)}`;
-  return { type: 'command', command, enabled: true, stack_with_default: false, padding: 0 };
+  return extraCommand === undefined ? base : `${base} --extra-cmd ${quoteShell(extraCommand)}`;
+}
+
+/** @param {BindingOptions} [options] */
+function createStatusLine(options) {
+  return { type: 'command', command: cliCommand(options), enabled: true, stack_with_default: false, padding: 0 };
 }
 
 /** @param {BindingOptions} [options] */
