@@ -4,6 +4,7 @@ import { link, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readTextFile } from './runtime/text-file.js';
+import { cliCommand } from './setup.js';
 
 const bundledSkill = new URL('../skills/agy-hub/SKILL.md', import.meta.url);
 const fingerprint = /\n<!-- AGY Hub installed SHA-256: ([a-f0-9]{64}) -->\n$/;
@@ -37,7 +38,9 @@ export async function manageSkill(action, home = homedir()) {
   if (action === 'path') return path;
   if (action !== 'install' && action !== 'uninstall') throw new Error('Use agy-hub skill install, uninstall, or path.');
   const content = await readFile(bundledSkill, 'utf8');
-  const installed = `${content}\n<!-- AGY Hub installed SHA-256: ${digest(content)} -->\n`;
+  const commandBlock = cliCommand().split('\n').map((line) => '    ' + line).join('\n');
+  const body = `${content.trimEnd()}\n\n## Installed command\n\n${commandBlock}\n`;
+  const installed = `${body}\n<!-- AGY Hub installed SHA-256: ${digest(body)} -->\n`;
   const existing = await readInstalled(path);
   if (existing !== null && !isManaged(existing, content)) {
     throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);

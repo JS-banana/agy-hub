@@ -25,15 +25,15 @@ The bundled rates use published standard text API pricing. Gemini 3.1 Pro uses t
 
 ## Optional hooks
 
-Run `agy-hub hooks` and merge the output's `agy-hub` entry into `.agents/hooks.json` in the workspace. Keep any existing entries you still use. Hooks add workspace paths, pair tool start and completion events, and let AGY Hub estimate output speed for an invocation. Regenerate the entry after an upgrade if the command path changes. Remove the entry to disable the hooks. [Antigravity hooks documentation](https://antigravity.google/docs/hooks)
+From the root of your AGY Hub copy, run `node src/cli.js hooks` and merge the output's `agy-hub` entry into `.agents/hooks.json` in the workspace. Keep any existing entries you still use. Hooks add workspace paths, pair tool start and completion events, and let AGY Hub estimate output speed for an invocation. Regenerate the entry after an upgrade if the command path changes. Remove the entry to disable the hooks. [Antigravity hooks documentation](https://antigravity.google/docs/hooks)
 
 Hooks retain workspace paths, tool names, relevant filenames, and invocation timing. AGY Hub caches tool summaries for a session and rereads source events when they change. Log-only tool counts can undercount when logs are truncated or other events interrupt tool responses. If the beginning of a log is missing, AGY Hub can use a hook record for the session start.
 
 ## Local data and diagnostics
 
 - Cost totals, hook metadata, and preview frames live in `~/.gemini/antigravity-cli/agy-hub-data/` by default. Set `AGY_HUB_DATA_DIR` to change the location. Each feature writes data when enabled.
-- After enabling `display.recordPreview`, run `agy-hub preview --last` to render the most recent recorded frame with the current configuration. The recording substitutes project paths, branch names, session titles, and email addresses. It retains rendering data such as the model, quota, and activity.
-- `agy-hub doctor` shows local configuration paths and integration status. `agy-hub report` produces a concise diagnostic summary that omits paths, account information, quota values, and log contents.
+- After enabling `display.recordPreview`, run `node src/cli.js preview --last` from the AGY Hub copy to render the most recent recorded frame with the current configuration. The recording substitutes project paths, branch names, session titles, and email addresses. It retains rendering data such as the model, quota, and activity.
+- `node src/cli.js doctor` shows local configuration paths and integration status. `node src/cli.js report` produces a concise diagnostic summary that omits paths, account information, quota values, and log contents.
 - To share quota snapshots between local processes, edit `display.externalUsagePath`, `display.externalUsageWritePath`, and `display.externalUsageFreshnessMs` in the configuration file. AGY Hub ignores snapshots past their reset time.
 - To show the first output line of a local command, append `--extra-cmd 'your local command'` to the installed binding and set `AGY_HUB_ALLOW_EXTRA_CMD=1`. AGY Hub preserves this argument when it refreshes a binding that uses the standard form.
 

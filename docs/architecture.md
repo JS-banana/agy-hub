@@ -1,6 +1,6 @@
 # Architecture
 
-AGY Hub is a status line command for the Antigravity CLI. Each invocation receives a JSON object and returns one rendered frame. The npm package runs directly as ESM JavaScript. JSDoc describes module interfaces, and modules with `@ts-check` use TypeScript's strict checks.
+AGY Hub is a status line command for the Antigravity CLI. Each invocation receives a JSON object and returns one rendered frame. Both the source checkout and unpacked release run directly on Node.js as ESM JavaScript. JSDoc describes module interfaces, and modules with `@ts-check` use TypeScript's strict checks.
 
 ```mermaid
 flowchart LR
@@ -31,6 +31,6 @@ Setup locks the Antigravity settings and checks the planned writes before saving
 
 ## Verification
 
-Run `npm run check` for type checks, behavior tests, and package verification. The package check installs the archive using a temporary home directory and two npm prefixes. It verifies that an installed shell command renders from stdin, that a stale binding can be refreshed, and that uninstall restores the original status line. GitHub CI runs the checks on macOS and Linux with Node.js 22 and 24. The macOS Node.js 24 job installs `jj` and runs the Jujutsu tests.
+Run `npm run check` for type checks, behavior tests, and package verification. The package check unpacks the release archive into two local directories and uses a temporary home directory. It verifies that the status line renders from stdin, a stale binding can be refreshed, and uninstall restores the original status line. GitHub CI runs the checks on macOS and Linux with Node.js 22 and 24. The macOS Node.js 24 job installs `jj` and runs the Jujutsu tests.
 
 For a new option, check the default, validation, and rendered output. For rendering changes, test normal width, narrow width, and plain output. The integration reference covers Antigravity fields and hooks. [Antigravity integration](integration.md)
