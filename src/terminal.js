@@ -1,4 +1,5 @@
-import { ansiColors } from './config.js';
+// @ts-check
+import { ansiColors } from './config-schema.js';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute } from 'node:path';
 
@@ -9,6 +10,7 @@ const DIM = '\x1b[2m';
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 // Adapted from Claude HUD's sanitize.ts and ansi.ts (MIT).
+/** @param {unknown} value */
 export function labelText(value) {
   if (typeof value !== 'string') return '';
   return value
@@ -17,6 +19,7 @@ export function labelText(value) {
     .trim();
 }
 
+/** @param {number} code */
 function isWide(code) {
   return code >= 0x1100 && (
     code <= 0x115f || code === 0x2329 || code === 0x232a
@@ -28,20 +31,24 @@ function isWide(code) {
   );
 }
 
+/** @param {string} segment */
 function cellWidth(segment) {
   if (/\p{Emoji_Presentation}|\uFE0F|\u20e3/u.test(segment)) return 2;
   const visible = segment.replace(/[\p{Mark}\p{Cf}]/gu, '');
-  return visible ? (isWide(visible.codePointAt(0)) ? 2 : 1) : 0;
+  return visible ? (isWide(visible.codePointAt(0) ?? 0) ? 2 : 1) : 0;
 }
 
+/** @param {string} text */
 export const stripColor = (text) => text.replace(CODES, '');
 
+/** @param {string} text */
 export function visibleWidth(text) {
   let width = 0;
   for (const { segment } of graphemes.segment(stripColor(text))) width += cellWidth(segment);
   return width;
 }
 
+/** @param {string} text @param {number} width */
 export function truncate(text, width) {
   if (visibleWidth(text) <= width) return text;
   const suffix = '.'.repeat(Math.min(width, 3));
@@ -71,7 +78,8 @@ export function truncate(text, width) {
   return result.includes('\x1b') ? result + RESET : result;
 }
 
-/** Pack already-rendered segments without splitting labels on user-supplied separators. */
+/** Pack already-rendered segments without splitting labels on user-supplied separators.
+ *  @param {string[]} parts @param {string} separator @param {number} width */
 export function pack(parts, separator, width) {
   const rows = [];
   let row = '';
@@ -88,27 +96,33 @@ export function pack(parts, separator, width) {
   return rows;
 }
 
+/** @param {string | number} color */
 function ansi(color) {
   if (typeof color === 'number') return `\x1b[38;5;${color}m`;
   if (color.startsWith('#')) {
-    const rgb = color.slice(1).match(/../g).map((channel) => parseInt(channel, 16));
+    const rgb = (color.slice(1).match(/../g) ?? []).map((channel) => parseInt(channel, 16));
     return `\x1b[38;2;${rgb.join(';')}m`;
   }
   return `\x1b[${ansiColors.get(color)}m`;
 }
 
+/** @param {string} text @param {string | number} color @param {boolean} enabled */
 export function paint(text, color, enabled) {
   return enabled ? `${ansi(color)}${text}${RESET}` : text;
 }
 
+/** @param {number} percent @param {number} width @param {string | number} color
+ *  @param {boolean} enabled @param {{barFilled?:string,barEmpty?:string}} [palette] */
 export function bar(percent, width, color, enabled, palette) {
   const filled = Math.round(percent / 100 * width);
+  /** @param {string | undefined} value @param {string} fallback */
   const glyph = (value, fallback) => value && visibleWidth(value) === 1 ? value : fallback;
   const blocks = glyph(palette?.barFilled, '█').repeat(filled);
   const rest = glyph(palette?.barEmpty, '░').repeat(width - filled);
   return enabled ? `${ansi(color)}${blocks}${DIM}${rest}${RESET}` : blocks + rest;
 }
 
+/** @param {unknown} path @param {string} text @param {boolean} enabled */
 export function linkPath(path, text, enabled) {
   if (!enabled || typeof path !== 'string' || !isAbsolute(path) || /[\p{Cc}\p{Bidi_Control}]/u.test(path)) return text;
   return `\x1b]8;;${pathToFileURL(path).href}\x1b\\${text}${CLOSE_LINK}`;

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmod, lstat, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { install, printSettings, uninstall } from '../src/setup.js';
+import { diagnoseInstallation, install, printSettings, uninstall } from '../src/setup.js';
 
 const posix = { skip: process.platform === 'win32' };
 const readSettings = async (path) => JSON.parse(await readFile(path, 'utf8'));
@@ -114,4 +114,25 @@ test('install preserves settings symlinks and refuses malformed settings', posix
   assert.deepEqual(await readSettings(target), JSON.parse(printSettings()));
   await uninstall({ settingsPath });
   assert.deepEqual(await readSettings(target), {});
+});
+
+test('diagnostics distinguish a custom command, a moved installation, disabled and active settings', posix, async (context) => {
+  const directory = await temporaryDirectory(context);
+  const settingsPath = join(directory, 'settings.json');
+  const script = join(directory, "old user's hud.js");
+  await writeFile(script, 'console.log("ready")');
+  await writeFile(settingsPath, '{"statusLine":{"type":"command","command":"other-hud"}}');
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'custom');
+  await install({ settingsPath, script });
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'stale');
+  await unlink(script);
+  const broken = await diagnoseInstallation({ settingsPath });
+  assert.equal(broken.state, 'broken');
+  assert.equal(broken.nodeAvailable, true);
+  assert.equal(broken.entryAvailable, false);
+  await install({ settingsPath });
+  const active = await readSettings(settingsPath);
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'active');
+  await writeFile(settingsPath, JSON.stringify({ statusLine: { ...active.statusLine, enabled: false } }));
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'disabled');
 });

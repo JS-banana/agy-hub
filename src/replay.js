@@ -1,12 +1,13 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { dataDir, readObject, writeObject } from './local-data.js';
+import { isRecord } from './objects.js';
 
 const target = () => join(dataDir(), 'preview.json');
 
 export function recordPreview(state, details) {
   const activity = details.activity;
   const screen = {
+    version: 1,
     state: {
       ...state, cwd: state.cwd ? '/workspace/project' : undefined, launchDir: undefined,
       addedDirs: state.addedDirs.map((_, index) => `/workspace/dir-${index + 1}`),
@@ -32,26 +33,10 @@ export function recordPreview(state, details) {
 
 export function recordedPreview() {
   const value = readObject(target());
-  return value?.state && value?.details ? value : null;
-}
-
-export function diagnostics(statusline, configuration) {
-  const settings = readObject(join(homedir(), '.gemini', 'antigravity-cli', 'settings.json'));
-  const last = recordedPreview();
-  const state = last?.state;
-  return {
-    node: process.versions.node,
-    platform: process.platform,
-    configuration,
-    statuslineInstalled: Boolean(settings && settings.statusLine?.command === statusline),
-    statuslineEnabled: Boolean(settings?.statusLine?.command && settings.statusLine.enabled !== false),
-    capturedFrame: state ? {
-      version: state.version || null,
-      columns: state.width,
-      context: Boolean(state.context),
-      quota: Boolean(state.quota.short || state.quota.weekly),
-      tools: Boolean(last.details.activity?.running?.length || last.details.activity?.completed?.length),
-      agents: state.agents.length,
-    } : null,
-  };
+  if (!value || (value.version !== undefined && value.version !== 1)) return null;
+  const { state, details } = value;
+  if (!isRecord(state) || !isRecord(details) || !isRecord(state.quota) || !Number.isFinite(state.now)
+    || typeof state.model !== 'string' || !Array.isArray(state.addedDirs) || !state.addedDirs.every((path) => typeof path === 'string')
+    || !Array.isArray(state.agents) || !state.agents.every((agent) => isRecord(agent) && typeof agent.name === 'string')) return null;
+  return value;
 }

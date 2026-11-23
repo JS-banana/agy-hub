@@ -1,6 +1,6 @@
 {
   "name": "agy-hub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Claude HUD-style status line for Antigravity CLI",
   "type": "module",
   "bin": {
@@ -11,11 +11,19 @@
   },
   "scripts": {
     "preview": "node src/cli.js preview",
-    "test": "node --test"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test",
+    "test:package": "node scripts/package-smoke.js",
+    "check": "npm run typecheck && npm test && npm run test:package"
   },
   "files": [
     "src/",
-    "docs/parity.md"
+    "docs/parity.md",
+    "docs/architecture.md"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
 }

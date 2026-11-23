@@ -1,82 +1,22 @@
-import { resolve, relative, isAbsolute, sep } from 'node:path';
-import { labelText, linkPath, pack, paint, truncate, visibleWidth } from './terminal.js';
+import { pack, paint, truncate } from './terminal.js';
 import { clock, contextPart, duration, memoryPart, tokens, usageParts } from './metrics.js';
 import { messages } from './messages.js';
 
-const DIVIDER = ' │ ';
-const PIPE = ' | ';
+import { DIVIDER, PIPE, expandedRows, formatRows } from './render/layout.js';
+import { addedDirs, changedFiles, projectParts } from './render/project.js';
+
 const ACTIVITY = new Set(['tools', 'skills', 'mcp', 'agents', 'tasks']);
 const EFFORT = { low: '○', medium: '◔', high: '◑', xhigh: '◕', max: '●' };
+/** @typedef {import('./render/types.js').Frame} Frame */
 
+/** @param {string} effort @param {string} format */
 function effortText(effort, format) {
-  const symbol = Object.hasOwn(EFFORT, effort) ? EFFORT[effort] : '';
+  const symbol = Object.hasOwn(EFFORT, effort) ? EFFORT[/** @type {keyof typeof EFFORT} */ (effort)] : '';
   if (!symbol || format === 'text') return effort;
   return format === 'symbol' ? symbol : `${symbol} ${effort}`;
 }
 
-function projectPath(cwd, levels) {
-  const safe = labelText(cwd);
-  if (!safe || levels === 'full') return safe;
-  return safe.split(/[/\\]/).filter(Boolean).slice(-levels).join('/') || safe;
-}
-
-function branchPart(frame, compact) {
-  const { config, style, git } = frame;
-  const name = labelText(git?.branch);
-  if (!name || !(git.vcs === 'jj' ? config.jjStatus.enabled : config.gitStatus.enabled)) return '';
-  const isJj = git.vcs === 'jj';
-  const opts = isJj ? config.jjStatus : config.gitStatus;
-  const fields = [style(name + (opts.showDirty && git.dirty ? '*' : ''), 'gitBranch')];
-  if (isJj && opts.showConflicts && git.conflict) fields.push(style('!conflict', 'critical'));
-  if (!isJj && opts.showAheadBehind) {
-    const { pushWarningThreshold: warn, pushCriticalThreshold: critical } = opts;
-    if (git.ahead) {
-      const shade = critical > 0 && git.ahead >= critical ? 'critical'
-        : warn > 0 && git.ahead >= warn ? 'warning' : 'gitBranch';
-      fields.push(style(`↑${git.ahead}`, shade));
-    }
-    if (git.behind) fields.push(style(`↓${git.behind}`, 'gitBranch'));
-  }
-  if (!isJj && opts.showFileStats && compact && git.fileStats) {
-    for (const [key, symbol] of [['modified', '!'], ['added', '+'], ['deleted', '✘'], ['untracked', '?']]) {
-      if (git.fileStats[key]) fields.push(style(`${symbol}${git.fileStats[key]}`, 'gitBranch'));
-    }
-  }
-  if (!compact && opts.showFileStats && git.lineDiff) {
-    const diff = [git.lineDiff.added ? style(`+${git.lineDiff.added}`, 'context') : '',
-      git.lineDiff.deleted ? style(`-${git.lineDiff.deleted}`, 'critical') : ''].filter(Boolean);
-    if (diff.length) fields.push(`[${diff.join(' ')}]`);
-  }
-  const worktree = opts.showWorktree && labelText(git.worktree);
-  return style(isJj ? 'jj:(' : 'git:(', 'git') + fields.join(' ') + style(')', 'git')
-    + (worktree ? ' ' + style(`⎇ ${worktree}`, 'git') : '');
-}
-
-function addedDirs(frame) {
-  const { state, config, style, color } = frame;
-  if (!config.display.showAddedDirs) return [];
-  return state.addedDirs.map((path) => linkPath(path, style(`+${projectPath(path, 1)}`, 'label'), color && config.display.showLinks));
-}
-
-function projectParts(frame, compact) {
-  const { state, config, style, color } = frame;
-  const { display, pathLevels } = config;
-  let project = '';
-  if (display.showProject && state.cwd) {
-    const path = projectPath(state.cwd, pathLevels);
-    const launch = state.launchDir && relative(state.launchDir, state.cwd);
-    const outside = launch && (launch === '..' || launch.startsWith('..' + sep) || isAbsolute(launch));
-    const beyond = launch && typeof pathLevels === 'number' && launch.split(sep).length >= pathLevels;
-    const prefix = display.showLaunchDir && pathLevels !== 'full' && (outside || beyond)
-      ? `${projectPath(state.launchDir, 1)} › ` : '';
-    project = linkPath(state.cwd, style(prefix + path, 'project'), color && display.showLinks && !compact);
-  }
-  if (display.addedDirsLayout === 'inline') project = [project, ...addedDirs(frame)].filter(Boolean).join(' ');
-  const branch = branchPart(frame, compact);
-  if (!branch || !project) return [project || branch];
-  return config.gitStatus.branchOverflow === 'wrap' ? [project, branch] : [`${project} ${branch}`];
-}
-
+/** @param {Frame} frame */
 function modelBadge(frame) {
   const { config, state, activity, style } = frame;
   const { display } = config;
@@ -95,8 +35,10 @@ function modelBadge(frame) {
   return style(`[${model}]`, 'model');
 }
 
+/** @param {Frame} frame */
 function costPart(frame) {
   const { words, config, state, style, costTotals } = frame;
+  /** @param {number} value */
   const money = (value) => `$${value.toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
   const { display } = config;
   const costs = [
@@ -107,6 +49,7 @@ function costPart(frame) {
   return costs.length ? style(costs.join(PIPE), 'label') : '';
 }
 
+/** @param {Frame} frame */
 function account(frame) {
   const { config: { display }, state } = frame;
   const plan = display.showAuth ? state.plan : '';
@@ -116,9 +59,11 @@ function account(frame) {
   return [plan, user].filter(Boolean).join(' · ');
 }
 
+/** @param {Frame} frame @param {boolean} compact */
 function header(frame, compact) {
   const { state, config, activity, style } = frame;
   const { display } = config;
+  /** @param {string | undefined} value */
   const dim = (value) => value ? style(value, 'label') : '';
   const model = compact ? [modelBadge(frame), contextPart(frame, true)].filter(Boolean).join(' ') : modelBadge(frame);
   const entries = new Map([
@@ -139,14 +84,17 @@ function header(frame, compact) {
   return display.customLinePosition === 'first' ? [custom, ...parts] : [...parts, custom];
 }
 
+/** @param {Frame} frame @param {string} key */
 function activityEntries(frame, key) {
   const { state, config, activity, words, style } = frame;
   const { display } = config;
   const activeIcon = style('◐', 'warning');
   const doneIcon = style('✓', 'context');
-  if (['tools', 'skills', 'mcp'].includes(key)) {
+  if (key === 'tools' || key === 'skills' || key === 'mcp') {
     if (!display[{ tools: 'showTools', skills: 'showSkills', mcp: 'showMcp' }[key]]) return [];
+    /** @param {Pick<import('./render/types.js').ToolCall, 'kind'>} entry */
     const group = (entry) => (entry.kind ?? 'tools') === key;
+    /** @param {string} name */
     const shorten = (name) => display.toolNameMaxLength ? truncate(name, display.toolNameMaxLength) : name;
     const running = activity?.running?.filter(group).slice(-2).map(({ name, target }) =>
       `${activeIcon} ${style(shorten(name), 'model')}${target ? style(`: ${target}`, 'label') : ''}`) ?? [];
@@ -169,32 +117,13 @@ function activityEntries(frame, key) {
     });
   }
   if (key === 'tasks' && display.showTasks) {
-    return [[state.tasks > 0 ? `${words.tasks} ${state.tasks}` : '',
-      state.artifacts > 0 ? `${words.artifacts} ${state.artifacts}` : ''].filter(Boolean).map((part) => style(part, 'label')).join(DIVIDER)];
+    return [[state.tasks ? `${words.tasks} ${state.tasks}` : '',
+      state.artifacts ? `${words.artifacts} ${state.artifacts}` : ''].filter(Boolean).map((part) => style(part, 'label')).join(DIVIDER)];
   }
   return [];
 }
 
-function changedFiles(frame) {
-  const { config, git, style, width, color } = frame;
-  if (!config.gitStatus.showFileStats || !git?.fileStats || width < 60) return [];
-  const { trackedFiles, modified, added, deleted, untracked } = git.fileStats;
-  const fileStyle = { modified: ['~', 'warning'], added: ['+', 'context'], deleted: ['-', 'critical'] };
-  const parts = trackedFiles.map(({ basename, fullPath, type, lineDiff }) => {
-    const [prefix, shade] = fileStyle[type];
-    const path = git.root ? resolve(git.root, fullPath) : '';
-    const inside = path && !relative(git.root, path).split(sep).includes('..');
-    const name = linkPath(path, style(labelText(basename), shade), inside && color && config.display.showLinks);
-    const diff = [lineDiff?.added ? style(`+${lineDiff.added}`, 'context') : '',
-      lineDiff?.deleted ? style(`-${lineDiff.deleted}`, 'critical') : ''].filter(Boolean);
-    return style(prefix, shade) + name + (diff.length ? `(${diff.join(' ')})` : '');
-  });
-  const more = modified + added + deleted - trackedFiles.length;
-  if (more > 0) parts.push(style(`+${more} more`, 'label'));
-  if (untracked > 0) parts.push(style(`?${untracked}`, 'label'));
-  return pack(parts, '  ', width);
-}
-
+/** @param {Frame} frame @param {string} key @param {boolean} [align] */
 function entriesFor(frame, key, align = false) {
   const { state, config, style, words, activity, environment } = frame;
   const { display } = config;
@@ -206,11 +135,13 @@ function entriesFor(frame, key, align = false) {
     case 'memory': return [memoryPart(frame, align)];
     case 'cost': return [costPart(frame)];
     case 'environment': {
-      const counts = environment && display.showConfigCounts ? [
-        ['instructions', 'AGENTS.md / GEMINI.md'], ['rules', words.rules], ['mcp', 'MCPs'], ['hooks', words.hooks],
-      ] : [];
-      if (counts.reduce((total, [item]) => total + environment[item], 0) < display.environmentThreshold) return [];
-      return pack(counts.filter(([item]) => environment[item] > 0).map(([item, name]) => style(`${environment[item]} ${name}`, 'label')), DIVIDER, frame.width);
+      if (!environment || !display.showConfigCounts) return [];
+      const counts = /** @type {const} */ ([
+        [environment.instructions, 'AGENTS.md / GEMINI.md'], [environment.rules, words.rules],
+        [environment.mcp, 'MCPs'], [environment.hooks, words.hooks],
+      ]);
+      if (counts.reduce((total, [count]) => total + count, 0) < display.environmentThreshold) return [];
+      return pack(counts.filter(([count]) => count > 0).map(([count, name]) => style(`${count} ${name}`, 'label')), DIVIDER, frame.width);
     }
     case 'cacheHitRate': {
       const { input, cache, cacheRead } = state.context ?? {};
@@ -220,7 +151,7 @@ function entriesFor(frame, key, align = false) {
     }
     case 'promptCache': {
       const cache = state.context?.cache;
-      return display.showPromptCache && cache !== null && cache > 0 ? [style(`${words.cache} ${tokens(cache)} ${words.tokens}`, 'label')] : [];
+      return display.showPromptCache && cache != null && cache > 0 ? [style(`${words.cache} ${tokens(cache)} ${words.tokens}`, 'label')] : [];
     }
     case 'sessionTime': return pack([
       display.showSessionStartDate && activity?.started != null ? style(`${words.start} ${clock(activity.started, frame)}`, 'label') : '',
@@ -233,44 +164,20 @@ function entriesFor(frame, key, align = false) {
   }
 }
 
+/** @param {Frame} frame */
 function expanded(frame) {
   const { config, width } = frame;
-  const rows = [];
-  const groups = new Map();
-  for (const group of config.display.mergeGroups) for (const element of group) {
-    if (!groups.has(element)) groups.set(element, group);
-  }
   const order = config.elementOrder;
-  for (let index = 0; index < order.length;) {
-    const key = order[index];
-    const group = groups.get(key);
-    let end = index + 1;
-    while (end < order.length && group && group === groups.get(order[end])) end += 1;
-    const entries = order.slice(index, end).map((element) => ({ element, lines: entriesFor(frame, element).filter(Boolean) }))
-      .filter(({ lines }) => lines.length);
-    index = end;
-    const joined = entries.map(({ lines }) => lines.join(DIVIDER)).join(DIVIDER);
-    if (entries.length > 1 && entries.every(({ lines }) => lines.length === 1) && visibleWidth(joined) <= width) {
-      const split = entries.findIndex(({ element }) => config.display.rightAlign.includes(element));
-      let line = joined;
-      if (split > 0 && Number.isFinite(width)) {
-        const left = entries.slice(0, split).map(({ lines }) => lines[0]).join(DIVIDER);
-        const right = entries.slice(split).map(({ lines }) => lines[0]).join(DIVIDER);
-        line = left + ' '.repeat(width - visibleWidth(left) - visibleWidth(right)) + right;
-      }
-      rows.push({ line, activity: entries.some(({ element }) => ACTIVITY.has(element)) });
-    } else {
-      for (const { element, lines } of entries) {
-        const parts = entries.length > 1 ? entriesFor(frame, element, true) : lines;
-        rows.push(...parts.map((line) => ({ line, activity: ACTIVITY.has(element) })));
-      }
-    }
-  }
+  const rows = expandedRows(order, {
+    mergeGroups: config.display.mergeGroups, rightAlign: config.display.rightAlign,
+    width, isActivity: (key) => ACTIVITY.has(key),
+  }, (key, align) => entriesFor(frame, key, align));
   rows.push(...changedFiles(frame).map((line) => ({ line, activity: false })));
   if (!order.includes('sessionTokens')) rows.push(...entriesFor(frame, 'sessionTokens').map((line) => ({ line, activity: false })));
   return rows;
 }
 
+/** @param {Frame} frame */
 function compact(frame) {
   const parts = [
     ...header(frame, true), ...usageParts(frame, true),
@@ -283,18 +190,18 @@ function compact(frame) {
   ];
 }
 
+/** @param {Frame['state']} state @param {Frame['config']} config @param {import('./render/types.js').RenderDetails} [details] */
 export function render(state, config, { git, activity, memory, environment, costTotals, extra, color = true } = {}) {
   const width = config.forceMaxWidth && config.maxWidth ? config.maxWidth
     : Math.min(state.width ?? Infinity, config.maxWidth ?? Infinity);
   const barWidth = width >= 100 ? 10 : width >= 60 ? 6 : 4;
+  /** @type {Frame['style']} */
   const style = (text, key) => paint(text, config.colors[key], color);
   const frame = { state, config, git, activity, memory, environment, costTotals, extra, width, barWidth, color, style,
     words: messages(config.language) };
-  const rows = (config.lineLayout === 'compact' ? compact(frame) : expanded(frame)).filter(({ line }) => line);
-  const firstActivity = rows.findIndex(({ activity: active }) => active);
-  if (config.showSeparators && firstActivity > 0) {
-    const count = Math.min(width, Math.max(20, ...rows.slice(0, firstActivity).map(({ line }) => visibleWidth(line))));
-    rows.splice(firstActivity, 0, { line: style('─'.repeat(count), 'label') });
-  }
-  return rows.map(({ line }) => (color ? '\x1b[0m' : '') + (Number.isFinite(width) ? truncate(line, width) : line)).join('\n');
+  const rows = config.lineLayout === 'compact' ? compact(frame) : expanded(frame);
+  return formatRows(rows, {
+    width, color, separator: config.showSeparators ? (line) => style(line, 'label') : undefined,
+  });
 }
+// @ts-check

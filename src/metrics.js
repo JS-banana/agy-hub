@@ -1,15 +1,21 @@
+// @ts-check
 import { bar, visibleWidth } from './terminal.js';
 import { percentage } from './state.js';
 
+/** @typedef {import('./render/types.js').Frame} Frame */
+/** @typedef {import('./render/types.js').ColorKey} ColorKey */
+/** @typedef {import('./state.js').QuotaWindow} QuotaWindow */
 const HOUR = 60 * 60 * 1000;
 export const WEEK = 7 * 24 * HOUR;
 
+/** @param {number} value */
 export function tokens(value) {
   if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
   if (value >= 1e3) return `${(value / 1e3).toFixed(0)}k`;
   return String(value);
 }
 
+/** @param {number} ms @param {boolean} [seconds] */
 export function duration(ms, seconds = false) {
   if (!Number.isFinite(ms) || ms < 0) return '';
   if (seconds && ms < 60_000) return `${Math.floor(ms / 1000)}s`;
@@ -22,8 +28,10 @@ export function duration(ms, seconds = false) {
   return rest ? `${days}d ${rest}h` : `${days}d`;
 }
 
+/** @param {number} at @param {Frame} frame */
 export function clock(at, frame) {
   const { state, config } = frame;
+  /** @type {Intl.DateTimeFormatOptions} */
   const options = { hour: '2-digit', minute: '2-digit' };
   const display = config.display;
   if (display.showClockSeconds) options.second = '2-digit';
@@ -35,23 +43,28 @@ export function clock(at, frame) {
   return `${date.toLocaleDateString(locale, { month: 'short', day: 'numeric' })} ${time}`;
 }
 
+/** @param {Frame} frame @param {'context'|'usage'|'weekly'|'memory'} key @param {boolean} [align] */
 function barLabel(frame, key, align) {
   const { style, words, config } = frame;
   const text = words[key];
-  const keys = ['context', 'usage', 'weekly', ...(config.display.showMemoryUsage ? ['memory'] : [])];
+  /** @type {(typeof key)[]} */
+  const keys = ['context', 'usage', 'weekly'];
+  if (config.display.showMemoryUsage) keys.push('memory');
   const gap = align ? Math.max(...keys.map((item) => visibleWidth(words[item]))) - visibleWidth(text) : 0;
   return style(text + ' '.repeat(gap), 'label');
 }
 
+/** @param {Frame} frame @param {number} percent @param {ColorKey} shade */
 const metricBar = (frame, percent, shade) => bar(percent, frame.barWidth, frame.config.colors[shade], frame.color, frame.config.colors);
 
+/** @param {Frame} frame @param {boolean} compact @param {boolean} [align] */
 export function contextPart(frame, compact, align = false) {
   const { state, config, style, words } = frame;
   if (!state.context) return '';
   const { input, cache, tokens: count } = state.context;
   const { display } = config;
   const size = display.autoCompactWindow ?? state.context.size;
-  const used = display.autoCompactWindow && count !== null ? percentage(100 * count / size) : state.context.used;
+  const used = display.autoCompactWindow && count !== null ? percentage(100 * count / display.autoCompactWindow) : state.context.used;
   const ratio = count === null ? '' : size ? `${tokens(count)}/${tokens(size)}` : tokens(count);
   const value = {
     percent: used === null ? ratio : `${used}%`,
@@ -75,6 +88,7 @@ export function contextPart(frame, compact, align = false) {
   ].filter(Boolean).join(' ');
 }
 
+/** @param {Frame} frame @param {QuotaWindow} window @param {number} period @param {boolean} compact @param {boolean} [exhausted] */
 function resets(frame, window, period, compact, exhausted = false) {
   if (window.reset <= 0) return '';
   const { config, words, state } = frame;
@@ -94,12 +108,14 @@ function resets(frame, window, period, compact, exhausted = false) {
   return mode === 'elapsedAndAbsolute' ? `${elapsed}, ${absolute}` : elapsed;
 }
 
+/** @param {QuotaWindow | null | undefined} window @param {number} period @param {boolean} enabled */
 function pace(window, period, enabled) {
   if (!enabled || !window || window.used === null || window.used < 10 || window.reset <= 0 || window.reset >= period) return '';
   const projected = window.used / (1 - window.reset / period);
   return projected > 100 ? 'critical' : projected >= 90 ? 'usageWarning' : '';
 }
 
+/** @param {Frame} frame @param {boolean} compact @param {boolean} [align] */
 export function usageParts(frame, compact, align = false) {
   const { state, config, style, words } = frame;
   const { display } = config;
@@ -118,15 +134,17 @@ export function usageParts(frame, compact, align = false) {
   if (!shortPace && !weeklyPace && Math.max(short?.used ?? 0, weekly?.used ?? 0) < display.usageThreshold
     && short?.amount == null && weekly?.amount == null) return [];
 
+  /** @param {QuotaWindow} window @param {boolean} isWeekly @param {ReturnType<typeof pace>} trend */
   const format = (window, isWeekly, trend) => {
     const period = isWeekly ? WEEK : 5 * HOUR;
-    const shade = window.used >= 90 || trend === 'critical' ? 'critical'
-      : window.used >= 75 || trend ? 'usageWarning' : 'usage';
-    const name = isWeekly ? barLabel(frame, 'weekly', align && short) : style('5h', 'label');
+    const used = window.used ?? 0;
+    const shade = used >= 90 || trend === 'critical' ? 'critical'
+      : used >= 75 || trend ? 'usageWarning' : 'usage';
+    const name = isWeekly ? barLabel(frame, 'weekly', align && Boolean(short)) : style('5h', 'label');
     const reset = resets(frame, window, period, compact);
-    const value = display.usageValue === 'remaining' ? 100 - window.used : window.used;
+    const value = display.usageValue === 'remaining' ? 100 - used : used;
     const amount = window.used === null
-      ? new Intl.NumberFormat(config.language, { maximumFractionDigits: 2 }).format(window.amount) : '';
+      ? new Intl.NumberFormat(config.language, { maximumFractionDigits: 2 }).format(window.amount ?? 0) : '';
     const quotaValue = amount ? (config.language === 'en' ? `${amount} ${words.left}` : `${words.left} ${amount}`) : `${value}%`;
     return [
       display.usageCompact ? style(isWeekly ? '7d:' : '5h:', 'label')
@@ -138,22 +156,25 @@ export function usageParts(frame, compact, align = false) {
     ].filter(Boolean).join(' ');
   };
   if (!short) {
+    if (!weekly) return [];
     const entry = format(weekly, true, weeklyPace);
     return [compact || display.usageCompact ? entry : `${label} ${entry}`];
   }
   const entry = format(short, false, shortPace);
   const parts = [display.usageCompact ? entry : `${label} ${entry}`];
-  if (weekly && (weekly.used >= display.sevenDayThreshold || weeklyPace || weekly.amount !== null)) {
+  if (weekly && ((weekly.used ?? 0) >= display.sevenDayThreshold || weeklyPace || weekly.amount !== null)) {
     parts.push(format(weekly, true, weeklyPace));
   }
   return parts;
 }
 
+/** @param {Frame} frame @param {boolean} align */
 export function memoryPart(frame, align) {
   const { memory, style, config } = frame;
   if (!config.display.showMemoryUsage || !memory) return '';
   const used = percentage(100 * memory.used / memory.total);
   const shade = used >= 90 ? 'critical' : used >= 75 ? 'warning' : 'context';
+  /** @param {number} bytes */
   const gib = (bytes) => (bytes / 1024 ** 3).toFixed(1);
   return `${barLabel(frame, 'memory', align)} ${metricBar(frame, used, shade)} ${style(`${gib(memory.used)}/${gib(memory.total)} GiB`, shade)}`;
 }

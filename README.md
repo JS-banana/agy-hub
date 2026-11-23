@@ -7,36 +7,49 @@
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
-## 试用与安装
+## 快速开始
 
-需要 Node.js 22+ 和支持自定义 `/statusline` 的 `agy`。安装与 Git 状态支持 macOS、Linux。
+需要 Node.js 22+ 和支持自定义 `/statusline` 的 `agy`。安装与 Git 状态支持 macOS、Linux；Git 和 jj 分别在已安装对应命令时使用。
 
-在项目目录预览，再用一次性配置启动一个 `agy` 会话：
-
-```sh
-npm run preview
-agy --settings "$(node src/cli.js settings)"
-```
-
-要在当前目录以外试用，先用 `node /项目绝对路径/src/cli.js settings` 生成会话配置。
-
-设为默认状态栏后，重启 `agy` 即可生效：
+**从源码目录安装 npm 命令**。先打包再全局安装，安装后的命令可以从任意工作目录运行。
 
 ```sh
-node src/cli.js install
+npm install -g "./$(npm pack --silent)"
+agy-hub preview
+agy --settings "$(agy-hub settings)"
 ```
 
-安装更新 `~/.gemini/antigravity-cli/settings.json` 的 `statusLine`，并备份原有值。安装记录使用 Node 与项目的绝对路径。如果移动项目或更换 Node 安装，重新运行安装命令。
+最后一行只给这次会话启用 HUD。确认效果后，运行 `agy-hub install` 再重启 `agy` 即可全局启用。安装会备份之前的 statusline。升级时重新安装新版 npm 包，再运行 `agy-hub install`。如果 Node 升级后入口失效，也用这个命令重新绑定；`agy-hub doctor` 会指出旧入口或 Node 是否不可用。
 
 ```sh
-node src/cli.js uninstall
+agy-hub uninstall
+npm uninstall -g agy-hub
 ```
 
-卸载恢复安装前的 `statusLine`。如果之后在 `agy` 改成了其他命令，卸载会保留新命令和备份。
+先恢复原 statusline，再卸载 npm 命令。如果之后在 `agy` 选择了别的状态栏，恢复命令会保留新选择和备份。
+
+可以在源码目录直接用 `node src/cli.js` 代替 `agy-hub`。这个方式绑定的是源码所在路径。
 
 ## 自定义
 
-配置保存在 `~/.gemini/antigravity-cli/agy-hub.json`，也可以用 `AGY_HUB_CONFIG` 指定路径。以下示例启用 Compact 布局及工具和子代理活动：
+配置默认保存在 `~/.gemini/antigravity-cli/agy-hub.json`，`agy-hub config path` 会显示实际路径。可以用 `AGY_HUB_CONFIG` 指定其他文件。
+
+| 预设 | 效果 |
+| --- | --- |
+| `default` | 两行 HUD，显示模型、项目、上下文和配额 |
+| `compact` | 将项目和用量尽可能排在一行 |
+| `activity` | 在默认布局下加工具和子代理活动 |
+
+```sh
+agy-hub preview --preset activity
+agy-hub init --preset activity
+agy-hub config show
+agy-hub config set '{"lineLayout":"compact","display":{"showAgents":true}}'
+agy-hub config check
+agy-hub config undo
+```
+
+`init` 只在配置文件缺失时写入预设。手动编辑时只填需要覆盖的键。以下示例启用 Compact 布局及工具、子代理活动：
 
 ```json
 {
@@ -60,27 +73,38 @@ node src/cli.js uninstall
 | 可选信息 | `display.showTools`、`showSkills`、`showMcp`、`showAgents`、`showTasks`、`showDuration`、`showAuth`、`showConfigCounts`、`showMemoryUsage`、`showCost`、`showSessionTokens` 等 |
 | 配色 | `colors` 接受颜色名、0–255 的 ANSI 色号和 `#rrggbb`。用 `barFilled`、`barEmpty` 改条形字符。设置 `NO_COLOR=1` 可关闭颜色 |
 
+编辑器支持 JSON Schema 时，先运行 `agy-hub init`，再生成与当前版本匹配的 Schema：
+
 ```sh
-npm run preview -- --compact --activity --width 100
-node src/cli.js schema
-node src/cli.js set '{"display":{"showTools":true,"showAgents":true}}'
-node src/cli.js undo
-node src/cli.js doctor
-npm test
+agy-hub config schema --json-schema > "$(dirname "$(agy-hub config path)")/agy-hub.schema.json"
+agy-hub config set '{"$schema":"./agy-hub.schema.json"}'
 ```
 
-用 `schema` 查看所有键与默认值，`config` 查看当前生效值。启用 `display.recordPreview` 后，`preview --last` 可用上一次的脱敏数据预览当前配置。`report` 只输出诊断字段和检测结果。
+启用 `display.recordPreview` 后，`agy-hub preview --last` 可用上一次的脱敏数据预览当前配置。`agy-hub doctor` 用于本机排查，`agy-hub report` 可生成省略路径和账号数据的诊断。
 
 ## 数据来源
 
 模型、上下文、配额和子代理直接来自 `agy`。Gemini 与第三方模型按各自的配额桶显示。工具统计默认关闭，启用后读取当前会话日志。配置计数来自常见的工作区和个人目录，费用汇总仅累计 HUD 开启跟踪后观察到的估算成本。
 
-需要追加目录、精确到工具步骤的活动和单次调用吞吐量时，用 `node src/cli.js hooks` 生成可选的 `agy-hub` hook 配置，将该条目合并至工作区 `.agents/hooks.json`。已有 hooks 可同时使用。AGY Hub 保存工作区列表、工具名及适用的文件名、调用计时，不存请求文本或命令参数。
+需要追加目录、精确到工具步骤的活动和单次调用吞吐量时，用 `agy-hub hooks` 生成可选的 `agy-hub` hook 配置，将该条目合并至工作区 `.agents/hooks.json`。已有 hooks 可同时使用。AGY Hub 保存工作区列表、工具名及适用的文件名、调用计时。
 
 统计、hook 元数据和预览保存在 `~/.gemini/antigravity-cli/agy-hub-data/`，也可用 `AGY_HUB_DATA_DIR` 指定位置。只在相应功能启用时写入。可用 `AGY_HUB_DISABLE=1 agy` 本次停用 HUD。
 
 自定义命令输出可放在首行。先设置 `AGY_HUB_ALLOW_EXTRA_CMD=1`，再在 statusLine 命令末尾添加 `--extra-cmd '你的本地命令'`。HUD 只取第一行。
 
 与 Claude HUD 的功能对应关系、数据缺口和验收记录见 [功能对照](docs/parity.md)。
+
+## 开发
+
+```sh
+npm ci
+npm run check
+```
+
+检查包含类型、行为、渲染层依赖边界和 npm 发行包的端到端测试。[工程架构](docs/architecture.md)
+
+## English quick start
+
+From a local checkout, run `npm install -g "./$(npm pack --silent)"`, then `agy-hub preview --preset activity`. To try the HUD for a single session, run `agy --settings "$(agy-hub settings)"`. Use `agy-hub init --preset activity` to save the preset and `agy-hub install` to make it the default. Run `agy-hub --help` for configuration and diagnostics. Requires Node.js 22+ and Antigravity CLI on macOS or Linux.
 
 布局和配色来自 [Claude HUD](https://github.com/jarrodwatts/claude-hud) v0.15.4（MIT），`agy` 配额结构参考了 [antigravity-cli-statusline](https://github.com/weby-homelab/antigravity-cli-statusline) 和 [Antigravity 官方文档](https://antigravity.google/docs/cli/statusline/)。
