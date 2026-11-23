@@ -55,6 +55,11 @@ function quotaWindow(quota, key, now) {
   };
 }
 
+const ARGON_MODEL = /(?:^|[^a-z0-9])argon(?:$|[^a-z0-9])/i;
+const GEMINI_MODEL = /(?:^|[^a-z0-9])gemini(?:$|[^a-z0-9])/i;
+const GEMINI_CODENAME = /(?:^|[^a-z0-9])(?:argon|carbon|neon|hydrogen)(?:$|[^a-z0-9])/i;
+const THIRD_PARTY_MODEL = /(?:^|[^a-z0-9])(?:claude|opus|sonnet|haiku|gpt|openai|deepseek|grok|kimi|glm|qwen|minimax)(?:$|[^a-z0-9])/i;
+
 /** @param {Record<string, unknown>} quota
  *  @param {string} identity
  *  @param {number} now
@@ -71,13 +76,17 @@ function usageWindows(quota, identity, now) {
   });
   const gemini = group('gemini');
   const thirdParty = group('3p');
-  const argon = /\bargon\b/i.test(identity) ? quotaWindow(quota, 'gemini-argon-wtu-weekly', now) : null;
+  const isGemini = GEMINI_MODEL.test(identity);
+  const isThirdParty = THIRD_PARTY_MODEL.test(identity);
+  const isArgon = !isThirdParty && ARGON_MODEL.test(identity);
+  const argon = isArgon ? quotaWindow(quota, 'gemini-argon-wtu-weekly', now) : null;
   if (argon) return { weekly: argon, scoped: true, key: 'argon' };
-  if (/\bargon\b/i.test(identity) && !gemini.short && !gemini.weekly) {
+  if (isArgon && !gemini.short && !gemini.weekly) {
     return { key: 'argon', disabled: disabled('gemini-argon-wtu-weekly') ? ['weekly'] : [] };
   }
-  if (/\bgemini\b/i.test(identity)) return { ...gemini, key: 'gemini' };
-  if (/\b(claude|opus|sonnet|haiku|gpt|openai|deepseek|grok|kimi|glm|qwen|minimax)\b/i.test(identity)) return { ...thirdParty, key: '3p' };
+  if (isGemini) return { ...gemini, key: 'gemini' };
+  if (isThirdParty) return { ...thirdParty, key: '3p' };
+  if (GEMINI_CODENAME.test(identity)) return { ...gemini, key: 'gemini' };
   const hasGemini = Boolean(gemini.short || gemini.weekly);
   const hasThirdParty = Boolean(thirdParty.short || thirdParty.weekly);
   if (hasGemini !== hasThirdParty) return hasGemini ? { ...gemini, key: 'gemini' } : { ...thirdParty, key: '3p' };

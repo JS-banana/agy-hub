@@ -114,6 +114,97 @@ test('displays only the current model quota and respects disabled and dedicated 
   assert.doesNotMatch(render(disabled, normalizeConfig(), { color: false }), /Usage/);
 });
 
+test('matches orchestrator, Gemini codename, and underscore-delimited model IDs to the right quota pool', () => {
+  const dualQuota = {
+    'gemini-5h': { remaining_fraction: 0.75, reset_in_seconds: 5400 },
+    'gemini-weekly': { remaining_fraction: 0.62, reset_in_seconds: 583_200 },
+    '3p-5h': { remaining_fraction: 0.15, reset_in_seconds: 3600 },
+    '3p-weekly': { remaining_fraction: 0.50, reset_in_seconds: 500_000 },
+  };
+  for (const displayName of ['Orchestrator (Neon)', 'Orchestrator (Hydrogen)', 'Orchestrator (Carbon)']) {
+    const state = normalizeState({ ...payload, quota: dualQuota, model: { display_name: displayName } });
+    assert.equal(state.quota.key, 'gemini');
+    assert.equal(state.quota.short.used, 25);
+    assert.equal(state.quota.weekly.used, 38);
+    const rendered = render(state, normalizeConfig({ display: { sevenDayThreshold: 0 } }), { color: false });
+    assert.match(rendered, /Usage .*25%/);
+    assert.match(rendered, /Weekly .*38%/);
+  }
+
+  const underscoreGemini = normalizeState({ ...payload, quota: dualQuota, model: { id: 'MODEL_ORCHESTRATOR_NEON' } });
+  assert.equal(underscoreGemini.quota.key, 'gemini');
+  assert.equal(underscoreGemini.quota.short.used, 25);
+
+  const underscoreThirdParty = normalizeState({ ...payload, quota: dualQuota, model: { id: 'MODEL_CLAUDE_OPUS_4_6' } });
+  assert.equal(underscoreThirdParty.quota.key, '3p');
+  assert.equal(underscoreThirdParty.quota.short.used, 85);
+
+  const underscoreArgon = normalizeState({
+    ...payload,
+    quota: { ...dualQuota, 'gemini-argon-wtu-weekly': { remaining_fraction: 0.15 } },
+    model: { id: 'MODEL_ORCHESTRATOR_ARGON' },
+  });
+  assert.equal(underscoreArgon.quota.key, 'argon');
+  assert.equal(underscoreArgon.quota.scoped, true);
+  assert.equal(underscoreArgon.quota.weekly.used, 85);
+
+  const argonScoped = normalizeState({
+    ...payload,
+    quota: { ...dualQuota, 'gemini-argon-wtu-weekly': { remaining_fraction: 0.15 } },
+    model: { display_name: 'Orchestrator (Argon)' },
+  });
+  assert.equal(argonScoped.quota.key, 'argon');
+  assert.equal(argonScoped.quota.scoped, true);
+  assert.equal(argonScoped.quota.weekly.used, 85);
+
+  const argonFallback = normalizeState({ ...payload, quota: dualQuota, model: { display_name: 'Orchestrator (Argon)' } });
+  assert.equal(argonFallback.quota.key, 'gemini');
+  assert.equal(argonFallback.quota.short.used, 25);
+
+  const argonDisabled = normalizeState({
+    ...payload,
+    quota: { 'gemini-argon-wtu-weekly': { remaining_fraction: 0, disabled: true }, '3p-5h': dualQuota['3p-5h'] },
+    model: { display_name: 'Orchestrator (Argon)' },
+  });
+  assert.equal(argonDisabled.quota.key, 'argon');
+  assert.deepEqual(argonDisabled.quota.disabled, ['weekly']);
+  assert.equal(argonDisabled.quota.short, undefined);
+
+  const thirdPartyOrch = normalizeState({ ...payload, quota: dualQuota, model: { display_name: 'Orchestrator (Opus)' } });
+  assert.equal(thirdPartyOrch.quota.key, '3p');
+  assert.equal(thirdPartyOrch.quota.short.used, 85);
+
+  const thirdPartyWithCodename = normalizeState({
+    ...payload,
+    quota: dualQuota,
+    model: { display_name: 'Claude Opus (Neon)', id: 'claude-opus-4-6' },
+  });
+  assert.equal(thirdPartyWithCodename.quota.key, '3p');
+  assert.equal(thirdPartyWithCodename.quota.short.used, 85);
+
+  const thirdPartyWithArgon = normalizeState({
+    ...payload,
+    quota: { ...dualQuota, 'gemini-argon-wtu-weekly': { remaining_fraction: 0.15 } },
+    model: { display_name: 'Claude Opus', id: 'MODEL_CLAUDE_OPUS_ARGON' },
+  });
+  assert.equal(thirdPartyWithArgon.quota.key, '3p');
+  assert.equal(thirdPartyWithArgon.quota.short.used, 85);
+
+  const disabledOrch = normalizeState({
+    ...payload,
+    quota: { 'gemini-5h': { remaining_fraction: 0, disabled: true }, '3p-5h': dualQuota['3p-5h'] },
+    model: { display_name: 'Orchestrator (Neon)' },
+  });
+  assert.equal(disabledOrch.quota.key, 'gemini');
+  assert.equal(disabledOrch.quota.short, null);
+  assert.doesNotMatch(render(disabledOrch, normalizeConfig(), { color: false }), /Usage/);
+
+  for (const displayName of ['neondb-custom', 'jargon-v1']) {
+    const unknown = normalizeState({ ...payload, quota: dualQuota, model: { display_name: displayName } });
+    assert.deepEqual(unknown.quota, {});
+  }
+});
+
 test('honors weekly thresholds and absolute reset times without hiding quota exhaustion', () => {
   const now = Date.parse('2026-11-23T12:00:00Z');
   const quota = { ...payload.quota, 'gemini-weekly': { remaining_fraction: 0, reset_time: '2026-11-24T14:00:00Z', reset_in_seconds: 5 } };
