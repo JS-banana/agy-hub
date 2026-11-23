@@ -4,10 +4,7 @@
 
 AGY Hub is a configurable status line for the Antigravity CLI (`agy`). It shows the active model, project, Git branch, context usage, and model quota. On narrower terminals, the HUD shortens progress bars and wraps rows.
 
-```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
-Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
-```
+![AGY Hub in Antigravity CLI showing the model, session cost, Git branch, context usage, and quotas](docs/assets/agy-hub-terminal-preview.png)
 
 ## Install
 

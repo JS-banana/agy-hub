@@ -4,10 +4,7 @@
 
 AGY Hub 是 Antigravity CLI（`agy`）的可配置状态栏。默认显示当前模型、项目、Git 分支、上下文占用和模型配额。窄屏时自动缩短进度条、拆分行。
 
-```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
-Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
-```
+![AGY Hub 在 Antigravity CLI 中显示模型、会话费用、Git 分支、上下文占用和配额](docs/assets/agy-hub-terminal-preview.png)
 
 ## 安装
 
