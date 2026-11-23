@@ -2,6 +2,13 @@
   "name": "agy-hub",
   "version": "0.4.0",
   "description": "A configurable status line for Antigravity CLI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JS-banana/agy-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JS-banana/agy-hub/issues"
+  },
   "type": "module",
   "bin": {
     "agy-hub": "src/cli.js"
@@ -14,10 +21,12 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test",
     "test:package": "node scripts/package-smoke.js",
+    "hooks:install": "git config --local core.hooksPath .githooks",
     "check": "npm run typecheck && npm test && npm run test:package"
   },
   "files": [
     "src/",
+    "README.zh.md",
     "docs/integration.md",
     "docs/architecture.md",
     "skills/agy-hub/SKILL.md"

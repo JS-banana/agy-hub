@@ -1,13 +1,55 @@
-name: Test
+name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  conventions:
+    name: Commit conventions
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Check PR title and commit subjects
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-commits.js --title "$PR_TITLE"
+          fi
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" == 0000000000000000000000000000000000000000 ]]; then
+            git log -1 -z --format=%s "$HEAD_SHA" -- | node scripts/check-commits.js --subjects
+          else
+            git log -z --format=%s "$BASE_SHA..$HEAD_SHA" -- | node scripts/check-commits.js --subjects
+          fi
+
   test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: ['22', '24']
@@ -22,8 +64,26 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - name: Install Jujutsu for the macOS integration test
-        if: matrix.os == 'macos-latest' && matrix.node == '24'
+        if: ${{ matrix.os == 'macos-latest' && matrix.node == '24' }}
         run: |
           brew install jj
           jj --version
       - run: npm run check
+
+  verify:
+    name: CI verify
+    if: ${{ always() }}
+    needs: [conventions, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful checks
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          COMMIT_RESULT: ${{ needs.conventions.result }}
+          CHECK_COMMITS: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          [[ "$TEST_RESULT" == success ]]
+          if [[ "$CHECK_COMMITS" == true ]]; then
+            [[ "$COMMIT_RESULT" == success ]]
+          fi

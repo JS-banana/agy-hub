@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release
+    uses: ./.github/workflows/test.yml
+
+  release:
+    name: Build release assets
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify the release ref
+        id: version
+        shell: bash
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo 'The release commit must be on main.' >&2
+            exit 1
+          }
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag=$(node scripts/release-tag.js "$GITHUB_REF_NAME")
+          else
+            tag=$(node scripts/release-tag.js)
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Pack and checksum
+        shell: bash
+        run: |
+          assets="$RUNNER_TEMP/agy-hub-release"
+          mkdir -p "$assets"
+          npm pack --pack-destination "$assets"
+          cd "$assets"
+          sha256sum agy-hub-*.tgz | tee SHA256SUMS
+      - name: Publish to GitHub Releases
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          args=(--verify-tag --generate-notes)
+          if [[ "$TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          assets="$RUNNER_TEMP/agy-hub-release"
+          gh release create "$TAG" "${args[@]}" "$assets"/agy-hub-*.tgz "$assets/SHA256SUMS"
