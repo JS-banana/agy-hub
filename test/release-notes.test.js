@@ -29,8 +29,9 @@ const sample = [
 ].join('\n');
 
 function releaseNotes(context, tag, text = sample) {
-  const file = join(realpathSync(mkdtempSync(join(tmpdir(), 'agy-hub-release-notes-'))), 'CHANGELOG.md');
-  context.after(() => rmSync(file, { force: true, recursive: true }));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hub-release-notes-')));
+  const file = join(dir, 'CHANGELOG.md');
+  context.after(() => rmSync(dir, { force: true, recursive: true }));
   writeFileSync(file, text);
   return spawnSync(process.execPath, [script, tag, file], { encoding: 'utf8' });
 }
@@ -73,10 +74,42 @@ test('rejects a release that the changelog does not describe or date', (context)
   for (const result of [missing, empty, blank, undated]) assert.equal(result.stdout, '', 'A rejected release must not produce notes');
 });
 
+test('preserves inline reference links while isolating yanked and non-version sections', (context) => {
+  const text = [
+    '# Changelog', '',
+    '## [Unreleased]', '',
+    '- Upcoming item', '',
+    '## [0.5.0] - 2026-11-24 [YANKED]', '',
+    '### Fixed', '',
+    '- Yanked fix, see [docs]', '',
+    '[docs]: https://example.com/docs', '',
+    '## Notes', '',
+    '- Trailing note that does not belong to 0.5.0', '',
+    `[Unreleased]: ${compare}v0.5.0...HEAD`,
+    `[0.5.0]: ${compare}v0.4.0...v0.5.0`,
+  ].join('\n');
+  const result = releaseNotes(context, 'v0.5.0', text);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.stdout,
+    '### Fixed\n\n- Yanked fix, see [docs]\n\n[docs]: https://example.com/docs'
+      + `\n\n**Full Changelog**: ${compare}v0.4.0...v0.5.0\n`,
+  );
+});
+
+test('rejects duplicate version headings', (context) => {
+  const duplicated = `${sample}\n## [0.5.0] - 2026-11-25\n\n- Duplicate\n`;
+  const result = releaseNotes(context, 'v0.5.0', duplicated);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /duplicate entries for 0\.5\.0/);
+});
+
 test('the repository changelog starts with Unreleased and dates and links every release', () => {
-  const headings = [...changelog.matchAll(/^## \[([^\]]+)\](?: - (\S+))?$/gm)].map(([, name, date]) => ({ name, date }));
+  const headings = [...changelog.matchAll(/^## \[([^\]]+)\](?: - (\S+))?\r?$/gm)].map(([, name, date]) => ({ name, date }));
   assert.equal(headings[0]?.name, 'Unreleased');
   assert.equal(headings[0].date, undefined);
+  assert.ok(changelog.includes('[Unreleased]: '), 'Unreleased needs a link reference');
   for (const { name, date } of headings.slice(1)) {
     assert.match(date ?? '', /^\d{4}-\d{2}-\d{2}$/, `${name} needs an ISO release date`);
     assert.ok(changelog.includes(`[${name}]: `), `${name} needs a link reference`);

@@ -17,4 +17,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guided `setup` wizard and the `init`, `config`, `install`, `uninstall`, `doctor`, `report`, `preview`, and `hooks` commands, with automatic backup and restore of an existing status line
 - JSON Schema for editor validation and an installable `agy-hub` Agent skill for plain-language configuration
 
-[Unreleased]: https://github.com/JS-banana/agy-hub/compare/HEAD
+[Unreleased]: https://github.com/JS-banana/agy-hub/commits/main
