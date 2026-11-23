@@ -1,4 +1,5 @@
-import { pack, paint, truncate } from './terminal.js';
+// @ts-check
+import { MAX_TERMINAL_WIDTH, pack, paint, truncate } from './terminal.js';
 import { clock, contextPart, duration, memoryPart, tokens, usageParts } from './metrics.js';
 import { messages } from './messages.js';
 
@@ -6,6 +7,7 @@ import { DIVIDER, PIPE, expandedRows, formatRows } from './render/layout.js';
 import { addedDirs, changedFiles, projectParts } from './render/project.js';
 
 const ACTIVITY = new Set(['tools', 'skills', 'mcp', 'agents', 'tasks']);
+const ACTIVITY_OPTIONS = /** @type {const} */ ({ tools: 'showTools', skills: 'showSkills', mcp: 'showMcp' });
 const EFFORT = { low: '○', medium: '◔', high: '◑', xhigh: '◕', max: '●' };
 /** @typedef {import('./render/types.js').Frame} Frame */
 
@@ -91,7 +93,7 @@ function activityEntries(frame, key) {
   const activeIcon = style('◐', 'warning');
   const doneIcon = style('✓', 'context');
   if (key === 'tools' || key === 'skills' || key === 'mcp') {
-    if (!display[{ tools: 'showTools', skills: 'showSkills', mcp: 'showMcp' }[key]]) return [];
+    if (!display[ACTIVITY_OPTIONS[key]]) return [];
     /** @param {Pick<import('./render/types.js').ToolCall, 'kind'>} entry */
     const group = (entry) => (entry.kind ?? 'tools') === key;
     /** @param {string} name */
@@ -110,7 +112,8 @@ function activityEntries(frame, key) {
     const ordered = [...state.agents.filter(({ running }) => running), ...state.agents.filter(({ running }) => !running).reverse()];
     return ordered.slice(0, 5).map(({ name, model, role, running, effort, start, end }) => {
       const description = role ? style(`: ${role}`, 'label') : '';
-      const elapsed = start != null && (running || end != null) ? duration((running ? state.now : end) - start, true) : '';
+      const until = running ? state.now : end;
+      const elapsed = start != null && until != null ? duration(until - start, true) : '';
       const modelLabel = [model, display.showAgentEffort && effort ? effortText(effort, display.effortFormat) : ''].filter(Boolean).join(' ');
       return `${running ? activeIcon : doneIcon} ${style(name, 'git')}${modelLabel ? ` ${style(`[${modelLabel}]`, 'label')}` : ''}`
         + description + (elapsed ? style(` (${elapsed})`, 'label') : '');
@@ -192,8 +195,8 @@ function compact(frame) {
 
 /** @param {Frame['state']} state @param {Frame['config']} config @param {import('./render/types.js').RenderDetails} [details] */
 export function render(state, config, { git, activity, memory, environment, costTotals, extra, color = true } = {}) {
-  const width = config.forceMaxWidth && config.maxWidth ? config.maxWidth
-    : Math.min(state.width ?? Infinity, config.maxWidth ?? Infinity);
+  const reportedWidth = state.width == null ? Infinity : Math.min(state.width, MAX_TERMINAL_WIDTH);
+  const width = config.forceMaxWidth && config.maxWidth ? config.maxWidth : Math.min(reportedWidth, config.maxWidth ?? Infinity);
   const barWidth = width >= 100 ? 10 : width >= 60 ? 6 : 4;
   /** @type {Frame['style']} */
   const style = (text, key) => paint(text, config.colors[key], color);
@@ -204,4 +207,3 @@ export function render(state, config, { git, activity, memory, environment, cost
     width, color, separator: config.showSeparators ? (line) => style(line, 'label') : undefined,
   });
 }
-// @ts-check

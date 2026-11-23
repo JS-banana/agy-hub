@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmod, lstat, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
+import { applySetupPreferences, preferences } from '../src/preferences.js';
 import { diagnoseInstallation, install, printSettings, uninstall } from '../src/setup.js';
 
 const posix = { skip: process.platform === 'win32' };
@@ -135,4 +136,83 @@ test('diagnostics distinguish a custom command, a moved installation, disabled a
   assert.equal((await diagnoseInstallation({ settingsPath })).state, 'active');
   await writeFile(settingsPath, JSON.stringify({ statusLine: { ...active.statusLine, enabled: false } }));
   assert.equal((await diagnoseInstallation({ settingsPath })).state, 'disabled');
+});
+
+test('refuses changes that exceed the settings or backup limit before writing either file', posix, async (context) => {
+  const settingsPath = join(await temporaryDirectory(context), 'settings.json');
+  const limit = 1024 * 1024;
+  const originalSettings = JSON.stringify({ unrelated: 'a'.repeat(limit - 40) });
+  const originalStatusline = JSON.stringify({ statusLine: { command: 'b'.repeat(limit - 50) } });
+  for (const [input, output] of [[originalSettings, settingsPath], [originalStatusline, backup(settingsPath)]]) {
+    await writeFile(settingsPath, input);
+    assert.equal((await diagnoseInstallation({ settingsPath })).state, 'too-large');
+    await assert.rejects(install({ settingsPath }), (error) => {
+      assert.match(error.message, /would exceed/);
+      assert.ok(error.message.includes(`/${basename(output)} would exceed`));
+      return true;
+    });
+    assert.equal(await readFile(settingsPath, 'utf8'), input);
+    await assert.rejects(stat(backup(settingsPath)), { code: 'ENOENT' });
+  }
+});
+
+test('recovers a legacy installation that already crossed the write limit', posix, async (context) => {
+  const settingsPath = join(await temporaryDirectory(context), 'settings.json');
+  const original = JSON.stringify({ unrelated: 'x'.repeat(1024 * 1024 - 17) });
+  const current = JSON.parse(printSettings());
+  const oldSettings = JSON.stringify({ ...JSON.parse(original), ...current }, null, 2);
+  assert.ok(Buffer.byteLength(oldSettings) > 1024 * 1024);
+  await writeFile(settingsPath, oldSettings);
+  await writeFile(backup(settingsPath), JSON.stringify({ commands: [current.statusLine.command], createdSettings: false }));
+  await uninstall({ settingsPath });
+  assert.equal(await readFile(settingsPath, 'utf8'), `${original}\n`);
+  await assert.rejects(stat(backup(settingsPath)), { code: 'ENOENT' });
+});
+
+test('rebinds an extended command and restores the original statusline', posix, async (context) => {
+  const directory = await temporaryDirectory(context);
+  const settingsPath = join(directory, 'settings.json');
+  const script = join(directory, "old version's cli.js");
+  const original = { statusLine: { type: 'command', command: 'old-hud' } };
+  const extraCommand = `printf "%s" "today's project"`;
+  await writeFile(script, '');
+  await writeFile(settingsPath, JSON.stringify(original));
+  await install({ settingsPath, script });
+  const { statusLine } = JSON.parse(printSettings({ script, extraCommand }));
+  await writeFile(settingsPath, JSON.stringify({ statusLine: { ...statusLine, padding: 1 } }));
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'stale');
+  await install({ settingsPath, replaceCustom: false });
+  const rebound = await readSettings(settingsPath);
+  assert.deepEqual(rebound, { statusLine: { ...JSON.parse(printSettings({ extraCommand })).statusLine, padding: 1 } });
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'active');
+
+  const custom = { statusLine: { command: rebound.statusLine.command + '; true' } };
+  await writeFile(settingsPath, JSON.stringify(custom));
+  assert.equal((await diagnoseInstallation({ settingsPath })).state, 'custom');
+  await assert.rejects(install({ settingsPath, replaceCustom: false }), /different statusline/);
+  await writeFile(settingsPath, JSON.stringify(rebound));
+  await uninstall({ settingsPath });
+  assert.deepEqual(await readSettings(settingsPath), original);
+});
+
+test('restores HUD preferences and their prior undo record if settings change before commit', posix, async (context) => {
+  const directory = await temporaryDirectory(context);
+  const settingsPath = join(directory, 'settings.json');
+  const configPath = join(directory, 'hud.json');
+  preferences('set', '{"display":{"showTools":true}}', { path: configPath });
+  const prior = await readFile(configPath, 'utf8');
+  const priorUndo = await readFile(`${configPath}.undo.json`, 'utf8');
+  const external = '{"theme":"light"}';
+  await assert.rejects(install({
+    settingsPath,
+    apply: async (commit) => (await applySetupPreferences({ lineLayout: 'compact' }, async () => {
+      assert.equal((await readSettings(configPath)).lineLayout, 'compact');
+      await writeFile(settingsPath, external);
+      return commit();
+    }, configPath)).installation,
+  }), /settings changed during setup/);
+  assert.equal(await readFile(settingsPath, 'utf8'), external);
+  assert.equal(await readFile(configPath, 'utf8'), prior);
+  assert.equal(await readFile(`${configPath}.undo.json`, 'utf8'), priorUndo);
+  await assert.rejects(stat(backup(settingsPath)), { code: 'ENOENT' });
 });

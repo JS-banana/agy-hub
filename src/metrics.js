@@ -143,8 +143,10 @@ export function usageParts(frame, compact, align = false) {
     const name = isWeekly ? barLabel(frame, 'weekly', align && Boolean(short)) : style('5h', 'label');
     const reset = resets(frame, window, period, compact);
     const value = display.usageValue === 'remaining' ? 100 - used : used;
-    const amount = window.used === null
-      ? new Intl.NumberFormat(config.language, { maximumFractionDigits: 2 }).format(window.amount ?? 0) : '';
+    const balance = window.amount ?? 0;
+    const amount = window.used === null ? new Intl.NumberFormat(config.language, balance > 0 && balance < 0.01
+      ? { maximumSignificantDigits: 2, notation: balance < 0.0001 ? 'scientific' : 'standard' }
+      : { maximumFractionDigits: 2 }).format(balance) : '';
     const quotaValue = amount ? (config.language === 'en' ? `${amount} ${words.left}` : `${words.left} ${amount}`) : `${value}%`;
     return [
       display.usageCompact ? style(isWeekly ? '7d:' : '5h:', 'label')

@@ -56,6 +56,17 @@ test('accepts Chinese delimiters and retries invalid choices without applying a 
   assert.equal([...screen.matchAll(/请输入列表中的选项/g)].length, 3);
 });
 
+test('shows hidden activity and disabled Git statistics as off before enabling them', async () => {
+  const config = normalizeConfig({
+    elementOrder: ['project', 'context', 'usage'],
+    display: { showTools: true }, gitStatus: { enabled: false, showFileStats: true },
+  });
+  const { patch, screen } = await run('\n1,3\ny\n', { config });
+  assert.match(screen, /\[ \] Tool activity/);
+  assert.match(screen, /\[ \] Git file stats/);
+  assert.deepEqual(patch, { display: { showTools: true }, gitStatus: { showFileStats: true, enabled: true } });
+});
+
 test('cancels on q, EOF or default no without returning edits', async () => {
   const early = await run('q\n');
   assert.deepEqual(early.previews, []);

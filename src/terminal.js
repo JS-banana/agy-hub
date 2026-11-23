@@ -1,7 +1,12 @@
 // @ts-check
-import { ansiColors } from './config-schema.js';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute } from 'node:path';
+
+export const MAX_TERMINAL_WIDTH = 1000;
+export const ansiColors = new Map(Object.entries({
+  dim: 2, red: 31, green: 32, yellow: 33, blue: 34, magenta: 35,
+  cyan: 36, white: 37, brightBlue: 94, brightMagenta: 95,
+}));
 
 const CODES = /\x1b(?:\[[0-9;]*m|\]8;;[^\x1b]*\x1b\\)/g;
 const CLOSE_LINK = '\x1b]8;;\x1b\\';

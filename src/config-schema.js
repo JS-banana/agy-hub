@@ -1,5 +1,8 @@
 // @ts-check
 import { isDeepStrictEqual, stripVTControlCharacters } from 'node:util';
+import { ansiColors, MAX_TERMINAL_WIDTH, visibleWidth } from './terminal.js';
+
+export { ansiColors } from './terminal.js';
 
 /** @typedef {Record<string, unknown>} JsonSchema */
 /**
@@ -28,12 +31,6 @@ const firstLine = /** @type {const} */ (['model', 'project', 'agent', 'sessionNa
 const contextWarning = 70;
 const contextCritical = 85;
 const terminalTextLimit = 250;
-
-const colorCodes = {
-  dim: 2, red: 31, green: 32, yellow: 33, blue: 34, magenta: 35,
-  cyan: 36, white: 37, brightBlue: 94, brightMagenta: 95,
-};
-export const ansiColors = new Map(Object.entries(colorCodes));
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isObject(value) {
@@ -92,15 +89,23 @@ function cleanText(value) {
   return [...visible].slice(0, terminalTextLimit).join('');
 }
 
-/** @param {string} description @param {string} [fallback] */
-function terminalText(description, fallback = '') {
-  /** @param {string} value */
-  const normalize = (value) => cleanText(value) || (fallback || undefined);
-  const acceptEmpty = fallback === '';
-  return rule(fallback, description, { type: 'string', maxLength: terminalTextLimit, ...(acceptEmpty ? {} : { minLength: 1 }) },
-    (value) => typeof value === 'string' ? (acceptEmpty ? cleanText(value) : normalize(value)) : undefined, {
-      accepts: (value) => typeof value === 'string' && value.trim() === cleanText(value) && (acceptEmpty || Boolean(normalize(value) && value.trim())),
-    });
+/** @param {string} description */
+function terminalText(description) {
+  return rule('', description, { type: 'string', maxLength: terminalTextLimit },
+    (value) => typeof value === 'string' ? cleanText(value) : undefined,
+    { accepts: (value) => typeof value === 'string' && value.trim() === cleanText(value) });
+}
+
+/** @param {string} description @param {string} fallback */
+function barGlyph(description, fallback) {
+  /** @param {unknown} value */
+  const normalize = (value) => {
+    if (typeof value !== 'string') return undefined;
+    const glyph = cleanText(value);
+    return visibleWidth(glyph) === 1 ? glyph : undefined;
+  };
+  return rule(fallback, description, { type: 'string', minLength: 1, maxLength: terminalTextLimit },
+    normalize, { accepts: (value) => typeof value === 'string' && normalize(value) === value.trim() });
 }
 
 /** @param {string} description @param {string} example */
@@ -133,7 +138,7 @@ const shape = {
   pathLevels: rule(/** @type {number | 'full'} */ (1), 'Number of trailing project-directory components to show, or the full path.',
     { anyOf: [{ type: 'integer', minimum: 1, maximum: 20 }, { const: 'full' }], examples: [2, 'full'] },
     (value) => value === 'full' || inRange(value, 1, 20) ? value : undefined),
-  maxWidth: integer(null, 1, 1000, 'Maximum HUD width in terminal columns. Null uses the width reported by agy.'),
+  maxWidth: integer(null, 1, MAX_TERMINAL_WIDTH, 'Maximum HUD width in terminal columns. Null uses the width reported by agy.'),
   showSeparators: flag(false, 'Insert a divider before activity rows.'),
   forceMaxWidth: flag(false, 'Use maxWidth as a fixed width even when agy reports a smaller width.'),
   elementOrder: order(elements.slice(0, -2), elements, 'Row order in expanded mode. Omit entries to hide or leave them in their default placement.'),
@@ -240,8 +245,8 @@ const shape = {
     usageWarning: color('brightMagenta', 'Quota warning color.'),
     critical: color('red', 'Critical metric color.'),
     custom: color(208, 'Custom project-line text color.'),
-    barFilled: terminalText('Single-cell symbol for the filled part of progress bars.', '█'),
-    barEmpty: terminalText('Single-cell symbol for the unfilled part of progress bars.', '░'),
+    barFilled: barGlyph('Single-cell symbol for the filled part of progress bars.', '█'),
+    barEmpty: barGlyph('Single-cell symbol for the unfilled part of progress bars.', '░'),
   },
 };
 

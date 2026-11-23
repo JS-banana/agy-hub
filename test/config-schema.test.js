@@ -76,3 +76,14 @@ test('separate frames and generated schemas cannot mutate rule defaults', () => 
   assert.deepEqual(normalizeConfig().display.mergeGroups, [['context', 'usage']]);
   assert.ok(jsonSchema().properties.language.enum.includes('en'));
 });
+
+test('checks progress glyphs with the same terminal cell width as the renderer', () => {
+  const wide = { colors: { barFilled: 'XY', barEmpty: '界' } };
+  assert.deepEqual(inspectConfig(wide).invalid, ['colors.barFilled', 'colors.barEmpty']);
+  const glyphs = normalizeConfig(wide).colors;
+  assert.equal(glyphs.barFilled, '█');
+  assert.equal(glyphs.barEmpty, '░');
+  const oneCell = { colors: { barFilled: 'e\u0301', barEmpty: '.' } };
+  assert.equal(inspectConfig(oneCell).valid, true);
+  assert.equal(normalizeConfig(oneCell).colors.barFilled, 'e\u0301');
+});

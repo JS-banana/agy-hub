@@ -76,7 +76,7 @@ export function projectParts(frame, compact) {
 /** @param {Frame} frame */
 export function changedFiles(frame) {
   const { config, git, style, width, color } = frame;
-  if (!config.gitStatus.showFileStats || !git?.fileStats || width < 60) return [];
+  if (!config.gitStatus.enabled || !config.gitStatus.showFileStats || !git?.fileStats || width < 60) return [];
   const { trackedFiles, modified, added, deleted, untracked } = git.fileStats;
   const fileStyle = /** @type {const} */ ({ modified: ['~', 'warning'], added: ['+', 'context'], deleted: ['-', 'critical'] });
   const parts = trackedFiles.map(({ basename, fullPath, type, lineDiff }) => {

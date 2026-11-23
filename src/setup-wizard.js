@@ -5,7 +5,6 @@ import { createInterface } from 'node:readline';
 /**
  * @typedef {{
  *   lineLayout?: HudConfig['lineLayout'],
- *   elementOrder?: HudConfig['elementOrder'],
  *   display?: Partial<Pick<HudConfig['display'], 'showTools' | 'showAgents'>>,
  *   gitStatus?: Partial<Pick<HudConfig['gitStatus'], 'enabled' | 'showFileStats'>>
  * }} SetupPatch
@@ -143,7 +142,12 @@ export async function setupWizard({
     });
     if (layout === null) return null;
 
-    const enabled = [config.display.showTools, config.display.showAgents, config.gitStatus.showFileStats];
+    const visible = (/** @type {'tools' | 'agents'} */ row) => layout === 'compact' || config.elementOrder.includes(row);
+    const enabled = [
+      config.display.showTools && visible('tools'),
+      config.display.showAgents && visible('agents'),
+      config.gitStatus.enabled && config.gitStatus.showFileStats,
+    ];
     output.write('\n');
     for (const [index, feature] of text.features.entries()) {
       output.write('  ' + (index + 1) + (enabled[index] ? '. [x] ' : '. [ ] ') + feature + '\n');
@@ -155,18 +159,12 @@ export async function setupWizard({
     const patch = layout === config.lineLayout ? {} : { lineLayout: layout };
     if (toggles.has('1') || toggles.has('2')) {
       patch.display = {
-        ...(toggles.has('1') ? { showTools: !config.display.showTools } : {}),
-        ...(toggles.has('2') ? { showAgents: !config.display.showAgents } : {}),
+        ...(toggles.has('1') ? { showTools: !enabled[0] } : {}),
+        ...(toggles.has('2') ? { showAgents: !enabled[1] } : {}),
       };
     }
-    if (layout === 'expanded') {
-      const order = [...config.elementOrder];
-      if (patch.display?.showTools && !order.includes('tools')) order.push('tools');
-      if (patch.display?.showAgents && !order.includes('agents')) order.push('agents');
-      if (order.length > config.elementOrder.length) patch.elementOrder = order;
-    }
     if (toggles.has('3')) {
-      const showFileStats = !config.gitStatus.showFileStats;
+      const showFileStats = !enabled[2];
       patch.gitStatus = {
         showFileStats, ...(showFileStats && !config.gitStatus.enabled ? { enabled: true } : {}),
       };

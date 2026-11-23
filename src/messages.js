@@ -1,3 +1,5 @@
+// @ts-check
+
 const en = {
   context: 'Context', usage: 'Usage', weekly: 'Weekly', memory: 'Approx RAM', cache: 'Cache',
   cacheHit: 'Cache hit', rules: 'rules', hooks: 'hooks', cost: 'Cost', today: 'Today', week: 'Week',
@@ -21,4 +23,5 @@ const hant = {
   left: '剩餘', elapsed: '% 已過', tasks: '背景任務', artifacts: '產物',
 };
 
-export const messages = (language) => ({ 'zh-Hans': hans, 'zh-Hant': hant })[language] ?? en;
+/** @param {import('./config-schema.js').HudConfig['language']} language */
+export const messages = (language) => language === 'en' ? en : { 'zh-Hans': hans, 'zh-Hant': hant }[language];

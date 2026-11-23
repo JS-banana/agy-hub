@@ -43,6 +43,14 @@ test('splits narrow bars and keeps compact layout on one line when it fits', () 
   assert.equal(compact, '[Gemini Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)');
 });
 
+test('bounds alignment even when a payload reports an implausibly wide terminal', () => {
+  const state = normalizeState({ ...payload, terminal_width: 1e20 });
+  const config = normalizeConfig({ display: { rightAlign: ['usage'] } });
+  const lines = render(state, config, { git, color: false }).split('\n');
+  assert.equal(visibleWidth(lines[1]), 1000);
+  assert.match(lines[1], /Usage .*25%/);
+});
+
 test('displays only the current model quota and respects disabled and dedicated buckets', () => {
   const quota = { ...payload.quota, 'gemini-argon-wtu-weekly': { remaining_fraction: 0.15 } };
   const thirdParty = normalizeState({ ...payload, quota, model: { display_name: 'Claude Opus' } });
@@ -116,7 +124,7 @@ test('handles Git before the first commit and displays dirty state in the comman
   writeFileSync(join(cwd, 'untracked'), 'test');
   const entry = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const output = execFileSync(process.execPath, [entry], {
-    env: { ...process.env, AGY_HUB_CONFIG: join(cwd, 'absent.json'), NO_COLOR: '1' },
+    env: { ...process.env, AGY_HUB_CONFIG: join(cwd, 'absent.json'), AGY_HUB_DISABLE: '0', NO_COLOR: '1' },
     input: JSON.stringify({ ...payload, workspace: { current_dir: cwd } }), encoding: 'utf8',
   });
   assert.match(output, /git:\(hud-test\*\)/);

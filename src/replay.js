@@ -1,6 +1,7 @@
 import { join } from 'node:path';
-import { dataDir, readObject, writeObject } from './local-data.js';
+import { dataDir } from './local-data.js';
 import { isRecord } from './objects.js';
+import { readObject, writeObject } from './runtime/json-file.js';
 
 const target = () => join(dataDir(), 'preview.json');
 

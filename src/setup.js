@@ -1,3 +1,4 @@
+// @ts-check
 import { constants } from 'node:fs';
 import { access, chmod, lstat, mkdir, mkdtemp, realpath, rename, rm, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -7,29 +8,43 @@ import { isDeepStrictEqual } from 'node:util';
 import { isRecord } from './objects.js';
 import { readTextFile } from './runtime/text-file.js';
 
+/** @typedef {{ text: string, mode: number }} FileSnapshot */
+/** @typedef {FileSnapshot & { value: Record<string, unknown> }} JsonFile */
+/** @typedef {{commands: string[], createdSettings: boolean, previous?: unknown}} Backup */
+/** @typedef {FileSnapshot & { value: Backup }} BackupFile */
+/** @typedef {{executable?: string, script?: string, extraCommand?: string}} BindingOptions */
+
 export const settingsPath = () => join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
 const SETTINGS_BYTES = 1024 * 1024;
+// Older versions could write settings or backups beyond their own read limit.
+const RECOVERY_BYTES = 4 * SETTINGS_BYTES;
 const entryPoint = fileURLToPath(new URL('./cli.js', import.meta.url));
 
 function requirePosix() {
   if (process.platform === 'win32') throw new Error('AGY Hub setup requires macOS or Linux.');
 }
 
+/** @param {string} value */
 function quoteShell(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function createStatusLine({ executable = process.execPath, script = entryPoint } = {}) {
-  return { type: 'command', command: `${quoteShell(executable)} ${quoteShell(script)}`, enabled: true, stack_with_default: false, padding: 0 };
+/** @param {BindingOptions} [options] */
+function createStatusLine({ executable = process.execPath, script = entryPoint, extraCommand } = {}) {
+  const base = `${quoteShell(executable)} ${quoteShell(script)}`;
+  const command = extraCommand === undefined ? base : `${base} --extra-cmd ${quoteShell(extraCommand)}`;
+  return { type: 'command', command, enabled: true, stack_with_default: false, padding: 0 };
 }
 
+/** @param {BindingOptions} [options] */
 export function printSettings(options) {
   requirePosix();
   return JSON.stringify({ statusLine: createStatusLine(options) });
 }
 
+/** @param {string} path @returns {JsonFile | null} */
 function readJson(path) {
-  const file = readTextFile(path, SETTINGS_BYTES);
+  const file = readTextFile(path, RECOVERY_BYTES);
   if (!file) return null;
   let value;
   try {
@@ -38,41 +53,60 @@ function readJson(path) {
     throw new Error(`Invalid JSON in ${path}.`);
   }
   if (!isRecord(value)) throw new Error(`Expected a JSON object in ${path}.`);
-  return { value, content: file.text, mode: file.mode };
+  return { ...file, value };
 }
 
-async function writeJson(path, value, original) {
+/** @param {string} path @param {unknown} value */
+function serialize(path, value, restoring = false) {
+  const text = `${JSON.stringify(value, null, 2)}\n`;
+  if (Buffer.byteLength(text) <= SETTINGS_BYTES) return text;
+  if (restoring) {
+    const compact = `${JSON.stringify(value)}\n`;
+    if (Buffer.byteLength(compact) <= SETTINGS_BYTES) return compact;
+  }
+  throw new RangeError(`Writing ${path} would exceed ${SETTINGS_BYTES} bytes.`);
+}
+
+/** @param {string} path @param {string} text @param {FileSnapshot | null} original @param {number} [mode] */
+async function replaceText(path, text, original, mode = original?.mode ?? 0o600) {
   const temporaryDirectory = await mkdtemp(join(dirname(path), '.agy-hub-'));
   try {
     const staged = join(temporaryDirectory, 'data');
-    await writeFile(staged, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-    await chmod(staged, original?.mode ?? 0o600);
-    if (original !== undefined) await verifySettings(path, original);
+    await writeFile(staged, text, { mode: 0o600 });
+    await chmod(staged, mode);
+    verifyUnchanged(path, original?.text);
     await rename(staged, path);
   } finally {
-    await rm(temporaryDirectory, { recursive: true, force: true });
+    // A cleanup failure after rename must not roll back a committed binding.
+    await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-async function withSettingsLock(settingsPath, createDirectory, operation) {
-  requirePosix();
-  const path = await realpath(settingsPath).catch(async (error) => {
+/** @param {string} path */
+function resolveSettings(path) {
+  return realpath(path).catch(async (error) => {
     if (error.code !== 'ENOENT') throw error;
-    const existing = await lstat(settingsPath).catch((statError) => {
+    const existing = await lstat(path).catch((statError) => {
       if (statError.code === 'ENOENT') return null;
       throw statError;
     });
     if (existing) throw error;
-    return settingsPath;
+    return path;
   });
+}
 
+/** @param {string} file @param {boolean} createDirectory @param {(path: string, backupPath: string) => Promise<string>} operation */
+async function withSettingsLock(file, createDirectory, operation) {
+  requirePosix();
+  const path = await resolveSettings(file);
   if (createDirectory) await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const lock = `${path}.agy-hub.lock`;
   try {
     await mkdir(lock, { mode: 0o700 });
   } catch (error) {
-    if (error.code === 'ENOENT' && !createDirectory) return 'AGY Hub has no saved installation.';
-    if (error.code === 'EEXIST') {
+    const { code } = /** @type {NodeJS.ErrnoException} */ (error);
+    if (code === 'ENOENT' && !createDirectory) return 'AGY Hub has no saved installation.';
+    if (code === 'EEXIST') {
       throw new Error(`AGY Hub setup is locked at ${lock}. If a previous setup was interrupted and no setup is running, remove the empty lock directory and retry.`);
     }
     throw error;
@@ -85,46 +119,96 @@ async function withSettingsLock(settingsPath, createDirectory, operation) {
   }
 }
 
+/** @param {string} path @returns {BackupFile | null} */
 function readBackup(path) {
-  const backup = readJson(path)?.value;
-  if (backup && (!Array.isArray(backup.commands) || !backup.commands.length ||
-    backup.commands.some((command) => typeof command !== 'string') || typeof backup.createdSettings !== 'boolean')) {
+  const file = readJson(path);
+  if (!file) return null;
+  const { commands, createdSettings } = file.value;
+  if (!Array.isArray(commands) || !commands.length || commands.some((command) => !bindingPaths(command))
+    || typeof createdSettings !== 'boolean') {
     throw new Error(`Invalid AGY Hub backup in ${path}.`);
   }
-  return backup;
+  return { ...file, value: { ...file.value, commands, createdSettings } };
 }
 
-async function verifySettings(path, original) {
-  if (readJson(path)?.content !== original?.content) {
+/** @param {string} path @param {string | undefined} text */
+function verifyUnchanged(path, text) {
+  if (readTextFile(path, RECOVERY_BYTES)?.text !== text) {
     throw new Error(`Antigravity settings changed during setup. Retry using the latest ${path}.`);
   }
 }
 
-export async function install({ settingsPath: file = settingsPath(), executable, script, replaceCustom = true } = {}) {
-  return withSettingsLock(file, true, async (path, backupPath) => {
-    const statusLine = createStatusLine({ executable, script });
-    const original = readJson(path);
-    const settings = original?.value ?? {};
-    const backup = readBackup(backupPath);
-    const currentCommand = settings.statusLine?.command;
-    if (currentCommand === statusLine.command) {
-      if (settings.statusLine.enabled === false) {
-        await writeJson(path, { ...settings, statusLine: { ...settings.statusLine, enabled: true } }, original);
-        return `Enabled AGY Hub in ${path}. Restart agy to load it.`;
-      }
-      return `AGY Hub is already configured in ${path}.`;
-    }
+/** @param {unknown} command @param {BackupFile | null} backup */
+function savedBinding(command, backup) {
+  const parsed = bindingPaths(command);
+  return parsed && backup?.value.commands.some((saved) => bindingPaths(saved)?.base === parsed.base) ? parsed : null;
+}
 
-    const ownsCurrent = backup?.commands.includes(currentCommand);
-    if (!replaceCustom && typeof currentCommand === 'string' && currentCommand && !ownsCurrent) {
+/** @param {string} path @param {string} backupPath @param {JsonFile | null} original
+ * @param {BackupFile | null} backup @param {BindingOptions} [options]
+ */
+function planInstall(path, backupPath, original, backup, options) {
+  const settings = original?.value ?? {};
+  const current = isRecord(settings.statusLine) ? settings.statusLine : null;
+  const desired = createStatusLine(options);
+  const parsed = bindingPaths(current?.command);
+  if (parsed?.base === desired.command) {
+    if (current?.enabled === false) return {
+      text: serialize(path, { ...settings, statusLine: { ...current, enabled: true } }),
+      message: `Enabled AGY Hub in ${path}. Restart agy to load it.`,
+    };
+    return { message: `AGY Hub is already configured in ${path}.` };
+  }
+
+  const managed = savedBinding(current?.command, backup);
+  const custom = typeof current?.command === 'string' && !!current.command && !managed;
+  const statusLine = managed
+    ? { ...desired, ...current, command: createStatusLine({ ...options, extraCommand: managed.extraCommand }).command, enabled: true }
+    : desired;
+  const saved = managed && backup
+    ? { ...backup.value, commands: [managed.base, desired.command] }
+    : { commands: [desired.command], createdSettings: !original, previous: settings.statusLine };
+  return {
+    custom,
+    text: serialize(path, { ...settings, statusLine }),
+    backup: serialize(backupPath, saved),
+    message: `Installed AGY Hub in ${path}. Restart agy to load it.`,
+  };
+}
+
+/** @param {string} path @param {string} text @param {BackupFile | null} original */
+async function restoreBackup(path, text, original) {
+  const current = readTextFile(path, RECOVERY_BYTES);
+  if (current?.text !== text) throw new Error(`Backup changed during setup: ${path}.`);
+  if (original) await replaceText(path, original.text, current, original.mode);
+  else await unlink(path);
+}
+
+/** @param {BindingOptions & {settingsPath?: string, replaceCustom?: boolean,
+ *   apply?: (commit: () => Promise<string>) => Promise<string>}} [options]
+ */
+export async function install({ settingsPath: file = settingsPath(), executable, script, replaceCustom = true, apply = (commit) => commit() } = {}) {
+  return withSettingsLock(file, true, async (path, backupPath) => {
+    const original = readJson(path);
+    const backup = readBackup(backupPath);
+    const plan = planInstall(path, backupPath, original, backup, { executable, script });
+    if (plan.custom && !replaceCustom) {
       throw new Error('A different statusline is configured. Confirm the replacement or run setup --configure-only to keep it.');
     }
-    const saved = ownsCurrent
-      ? { ...backup, commands: [currentCommand, statusLine.command] }
-      : { commands: [statusLine.command], createdSettings: !original, previous: settings.statusLine };
-    await writeJson(backupPath, saved);
-    await writeJson(path, { ...settings, statusLine }, original);
-    return `Installed AGY Hub in ${path}. Restart agy to load it.`;
+    return apply(async () => {
+      if (!plan.text) return plan.message;
+      if (plan.backup) {
+        verifyUnchanged(path, original?.text);
+        await replaceText(backupPath, plan.backup, backup);
+      }
+      try {
+        await replaceText(path, plan.text, original);
+      } catch (error) {
+        if (plan.backup) await restoreBackup(backupPath, plan.backup, backup);
+        throw error;
+      }
+      return plan.message;
+    });
   });
 }
 
@@ -135,16 +219,17 @@ export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
 
     const original = readJson(path);
     const settings = original?.value ?? {};
-    if (backup.commands.includes(settings.statusLine?.command)) {
-      if (Object.hasOwn(backup, 'previous')) settings.statusLine = backup.previous;
+    const current = isRecord(settings.statusLine) ? settings.statusLine : null;
+    if (savedBinding(current?.command, backup)) {
+      if (Object.hasOwn(backup.value, 'previous')) settings.statusLine = backup.value.previous;
       else delete settings.statusLine;
-      if (backup.createdSettings && Object.keys(settings).length === 0) {
-        await verifySettings(path, original);
+      if (backup.value.createdSettings && Object.keys(settings).length === 0) {
+        verifyUnchanged(path, original?.text);
         await unlink(path);
       } else {
-        await writeJson(path, settings, original);
+        await replaceText(path, serialize(path, settings, true), original);
       }
-    } else if (!isDeepStrictEqual(settings.statusLine, backup.previous)) {
+    } else if (!isDeepStrictEqual(settings.statusLine, backup.value.previous)) {
       return `The status line command was changed after installation. The prior settings are saved in ${backupPath}.`;
     }
 
@@ -153,14 +238,18 @@ export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
   });
 }
 
+/** @param {unknown} command */
 function bindingPaths(command) {
-  // Parse only the two canonical words emitted here. Never evaluate shell input.
+  // Accept the canonical invocation and its one optional quoted argument.
+  if (typeof command !== 'string') return null;
   const words = [...command.matchAll(/'((?:[^']|'\\'')*)'/g)].map((match) => match[1].replaceAll("'\\''", "'"));
-  if (words.length !== 2 || words.some((word) => !isAbsolute(word))) return null;
-  const [executable, script] = words;
-  return createStatusLine({ executable, script }).command === command ? { executable, script } : null;
+  const [executable, script, extraCommand] = words;
+  if ((words.length !== 2 && words.length !== 3) || !isAbsolute(executable) || !isAbsolute(script)) return null;
+  const base = createStatusLine({ executable, script }).command;
+  return createStatusLine({ executable, script, extraCommand }).command === command ? { executable, script, base, extraCommand } : null;
 }
 
+/** @param {string} path @param {number} mode */
 async function usableFile(path, mode) {
   try {
     await access(path, mode);
@@ -170,6 +259,7 @@ async function usableFile(path, mode) {
   }
 }
 
+/** @param {string} name */
 export async function commandOnPath(name, path = process.env.PATH ?? '') {
   const executable = process.platform === 'win32' ? `${name}.exe` : name;
   const mode = process.platform === 'win32' ? constants.F_OK : constants.X_OK;
@@ -180,27 +270,33 @@ export async function commandOnPath(name, path = process.env.PATH ?? '') {
 
 export async function diagnoseInstallation({ settingsPath: file = settingsPath() } = {}) {
   if (process.platform === 'win32') return { state: 'unsupported', enabled: false };
-  let statusLine;
+  let original;
   let target;
   try {
-    target = await realpath(file).catch(() => file);
-    statusLine = readJson(target)?.value.statusLine;
+    target = await resolveSettings(file);
+    original = readJson(target);
   } catch {
     return { state: 'unreadable', enabled: false };
   }
-  if (!isRecord(statusLine) || typeof statusLine.command !== 'string' || !statusLine.command) {
-    return { state: 'not-configured', enabled: false };
-  }
-
-  const enabled = statusLine.enabled !== false;
-  const current = statusLine.command === createStatusLine().command;
+  const statusLine = isRecord(original?.value.statusLine) ? original.value.statusLine : null;
+  const configured = typeof statusLine?.command === 'string' && !!statusLine.command;
+  const enabled = configured && statusLine?.enabled !== false;
+  const paths = bindingPaths(statusLine?.command);
+  const current = paths?.base === createStatusLine().command;
+  const backupPath = `${target}.agy-hub-backup.json`;
   let backup;
-  try { backup = readBackup(`${target}.agy-hub-backup.json`); } catch {
+  try { backup = readBackup(backupPath); } catch {
     return { state: 'invalid-backup', enabled, managed: current };
   }
-  if (!current && !backup?.commands.includes(statusLine.command)) return { state: 'custom', enabled };
+  try {
+    planInstall(target, backupPath, original, backup);
+  } catch (error) {
+    if (error instanceof RangeError) return { state: 'too-large', enabled };
+    throw error;
+  }
+  if (!configured) return { state: 'not-configured', enabled: false };
+  if (!current && !savedBinding(statusLine?.command, backup)) return { state: 'custom', enabled };
 
-  const paths = bindingPaths(statusLine.command);
   const [nodeAvailable, entryAvailable] = paths ? await Promise.all([
     usableFile(paths.executable, constants.X_OK),
     usableFile(paths.script, constants.R_OK),

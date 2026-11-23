@@ -1,7 +1,7 @@
 {
   "name": "agy-hub",
   "version": "0.4.0",
-  "description": "A Claude HUD-style status line for Antigravity CLI",
+  "description": "A configurable status line for Antigravity CLI",
   "type": "module",
   "bin": {
     "agy-hub": "src/cli.js"
@@ -18,7 +18,7 @@
   },
   "files": [
     "src/",
-    "docs/parity.md",
+    "docs/integration.md",
     "docs/architecture.md",
     "skills/agy-hub/SKILL.md"
   ],

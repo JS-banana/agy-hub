@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,6 +70,52 @@ test('Agent setup requires separate approval for an existing statusline', posix,
   assert.deepEqual(json(settings), original);
 });
 
+test('setup plans detect locked HUD preferences and invalid backups before enabling the binding', posix, (t) => {
+  const { run, config, settings } = workspace(t);
+  const backup = `${settings}.agy-hub-backup.json`;
+  const original = { statusLine: { command: 'previous-hud' } };
+  writeFileSync(settings, JSON.stringify(original));
+  mkdirSync(`${config}.lock`);
+  const args = ['--preset', 'compact', '--replace'];
+  const plan = JSON.parse(run('setup', '--dry-run', '--json', ...args).stdout);
+  assert.equal(plan.blocked, true);
+  assert.equal(plan.configLocked, true);
+  const failed = run('setup', '--yes', ...args);
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, /configuration is locked/i);
+  assert.deepEqual(json(settings), original);
+  assert.equal(existsSync(backup), false);
+  assert.equal(existsSync(config), false);
+
+  rmSync(`${config}.lock`, { recursive: true });
+  writeFileSync(settings, '{}');
+  writeFileSync(backup, '{}');
+  const invalid = JSON.parse(run('setup', '--dry-run', '--json').stdout);
+  assert.equal(invalid.blocked, true);
+  assert.equal(invalid.statusline, 'invalid-backup');
+  assert.equal(run('setup', '--yes').status, 1);
+  assert.deepEqual(json(backup), {});
+});
+
+test('guided configuration inserts requested activity and honors an explicit order', (t) => {
+  const { config, run } = workspace(t);
+  const elementOrder = ['project', 'context', 'usage'];
+  writeFileSync(config, JSON.stringify({ elementOrder, display: { showAgents: true } }));
+  const options = ['--configure-only', '--set', '{"display":{"showTools":true}}'];
+  const preview = JSON.parse(run('setup', '--dry-run', '--json', ...options).stdout);
+  assert.match(preview.preview, /✓ Read/);
+  assert.doesNotMatch(preview.preview, /◐ explore/);
+  assert.equal(run('setup', '--yes', ...options).status, 0);
+  assert.deepEqual(json(config).elementOrder, [...elementOrder, 'tools']);
+  const explicit = JSON.stringify({ elementOrder, display: { showTools: true } });
+  assert.equal(run('setup', '--configure-only', '--yes', '--set', explicit).status, 0);
+  assert.deepEqual(json(config).elementOrder, elementOrder);
+
+  const noGit = '{"gitStatus":{"enabled":false,"showFileStats":true}}';
+  const frame = JSON.parse(run('setup', '--configure-only', '--dry-run', '--json', '--set', noGit).stdout).preview;
+  assert.doesNotMatch(frame, /git:\(|auth\.ts|\?1/);
+});
+
 test('local Agent skill is installable and preserves a modified copy', posix, (t) => {
   const { run, settings } = workspace(t);
   const path = run('skill', 'path').stdout.trim();
@@ -78,10 +125,18 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   assert.equal(run('skill', 'install').status, 0);
   assert.equal(run('skill', 'uninstall').status, 0);
   assert.equal(existsSync(path), false);
-  assert.equal(run('skill', 'install').status, 0);
-  writeFileSync(path, 'my custom skill');
+  const previous = '---\nname: agy-hub\ndescription: Old instructions\n---\n';
+  const digest = createHash('sha256').update(previous).digest('hex');
+  const previousInstall = `${previous}\n<!-- AGY Hub installed SHA-256: ${digest} -->\n`;
+  writeFileSync(path, previousInstall);
+  const upgraded = run('skill', 'install');
+  assert.equal(upgraded.status, 0, upgraded.stderr);
+  assert.match(upgraded.stdout, /Updated/);
+  assert.equal(readFileSync(path, 'utf8'), installed);
+  const modified = previousInstall.replace('Old instructions', 'my custom skill');
+  writeFileSync(path, modified);
   assert.equal(run('skill', 'install').status, 1);
   assert.equal(run('skill', 'uninstall').status, 1);
-  assert.equal(readFileSync(path, 'utf8'), 'my custom skill');
+  assert.equal(readFileSync(path, 'utf8'), modified);
   assert.equal(existsSync(settings), false);
 });

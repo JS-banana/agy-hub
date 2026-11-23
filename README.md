@@ -1,111 +1,85 @@
 # AGY Hub
 
-把 Claude HUD 的状态栏布局带到 Antigravity CLI (`agy`)。默认第一行显示模型、项目和 Git 分支，第二行显示上下文与配额用量。进度条随终端宽度缩短，空间不足时分行。
+AGY Hub 是 Antigravity CLI（`agy`）的可配置状态栏。默认显示当前模型、项目、Git 分支、上下文占用和模型配额。窄屏时自动缩短进度条、拆分行。
 
 ```text
 [Gemini 3.8 Flash] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
-## 快速开始
+## 安装
 
-需要 Node.js 22+ 和支持自定义 `/statusline` 的 `agy`。安装与 Git 状态支持 macOS、Linux；Git 和 jj 分别在已安装对应命令时使用。
-
-**从源码目录安装 npm 命令**。先打包再全局安装，安装后的命令可以从任意工作目录运行。
+需要 macOS 或 Linux、Node.js 22 或更新版本，以及支持自定义状态栏的 `agy`。在 AGY Hub 源码目录运行：
 
 ```sh
 npm install -g "./$(npm pack --silent)"
 agy-hub setup
 ```
 
-`setup` 会让你选择展开或紧凑布局、决定是否显示工具活动、子代理和 Git 文件统计，并在确认前展示示例。确认后打开新的 `agy` 会话即可使用。已有其他状态栏时，向导会说明替换并备份原设置。已有 AGY Hub 时，用 `agy-hub setup --configure-only` 打开同一个向导调整显示。
+向导会让你选布局，以及是否显示工具、子代理和 Git 文件统计。确认前会展示示例，并在替换现有自定义状态栏时提示备份。确认后打开新的 `agy` 会话即可使用。
 
-只想试用一次，可运行 `agy --settings "$(agy-hub settings)"`。升级时重新安装新版 npm 包，再运行 `agy-hub install`。如果 Node 升级后入口失效，`agy-hub doctor` 会指出旧入口或 Node 是否不可用。
+只想试用一次，可运行 `agy --settings "$(agy-hub settings)"`。在源码目录也可以用 `node src/cli.js` 代替 `agy-hub`，安装时会绑定当前源码的绝对路径。
 
-```sh
-agy-hub uninstall
-npm uninstall -g agy-hub
-```
+## 配置状态栏
 
-先恢复原 statusline，再卸载 npm 命令。如果之后在 `agy` 选择了别的状态栏，恢复命令会保留新选择和备份。
+随时运行 `agy-hub setup --configure-only` 重新打开向导。可先用 `agy-hub preview --preset activity` 看示例，用 `--width 60` 模拟窄屏，或用 `--plain` 查看无色输出。
 
-可以在源码目录直接用 `node src/cli.js` 代替 `agy-hub`。这个方式绑定的是源码所在路径。
-
-## 用一句话配置
-
-在 AGY Hub 源码目录里，可以告诉 Agent「帮我启用 AGY Hub，状态栏用紧凑布局，显示工具活动，先给我看预览」。已安装 CLI 时，也可以用 `agy-hub skill install` 把本地 `/agy-hub` 命令加入 Antigravity CLI，再在新会话输入：
-
-```text
-/agy-hub 改成紧凑布局，显示工具和子代理，其他设置保持不动
-```
-
-如果会话已经开着，可在交互终端运行 `/skills reload`。Agent 会查询配置、生成示例并通过 CLI 保存。工具可用时，Agent 也能把布局或显示项做成选项让你选择。用 `agy-hub skill uninstall` 移除本地 Skill。
-
-给 Agent 或脚本的入口是 `agy-hub setup --dry-run --json`。可搭配 `--preset` 或 `--set '<JSON>'` 提交候选。用同一组配置参数把 `--dry-run` 换成 `--yes` 才会应用，`--configure-only` 只改 HUD 显示。替换其他状态栏还需显式的 `--replace`。
-
-## 自定义
-
-配置默认保存在 `~/.gemini/antigravity-cli/agy-hub.json`，`agy-hub config path` 会显示实际路径。可以用 `AGY_HUB_CONFIG` 指定其他文件。
-
-| 预设 | 效果 |
+| 预设 | 显示内容 |
 | --- | --- |
-| `default` | 两行 HUD，显示模型、项目、上下文和配额 |
-| `compact` | 将项目和用量尽可能排在一行 |
-| `activity` | 在默认布局下加工具和子代理活动 |
+| `default` | 默认两行，显示模型、项目、Git、上下文和配额 |
+| `compact` | 优先把项目和用量排在同一行 |
+| `activity` | 在展开布局中加上工具和子代理活动 |
+
+### 让 Agent 配置
+
+在 AGY Hub 源码目录里，可以告诉 Agent「帮我启用 AGY Hub，使用紧凑布局并显示工具，先给我看预览」。想在 `agy` 里用斜杠命令，可选装本地 Skill：
 
 ```sh
-agy-hub preview --preset activity
-agy-hub init --preset activity
+agy-hub skill install
+```
+
+打开新会话，或在现有交互会话运行 `/skills reload`，然后输入 `/agy-hub 改成紧凑布局，显示工具和子代理`。
+
+Agent 或脚本可用 `agy-hub setup --dry-run --json` 读取预览和计划，通过 `--preset` 或 `--set '<JSON>'` 传入候选设置。同一组参数改用 `--yes` 即可保存。`--configure-only` 只改显示，替换其他状态栏时需要 `--replace`。
+
+`preview --preset` 从默认配置预览，`setup --preset` 把预设包含的选项合并到当前配置。
+通过 `setup` 开启工具、子代理、技能或 MCP 活动时，展开布局会补上缺失的对应行。传入 `elementOrder` 可以指定完整的行顺序。
+
+### 进阶设置
+
+配置默认保存在 `~/.gemini/antigravity-cli/agy-hub.json`。用 `agy-hub config path` 查看实际位置，用 `AGY_HUB_CONFIG` 指定其他文件。手动编辑时只需填写要覆盖的设置。
+
+```sh
 agy-hub config show
-agy-hub config set '{"lineLayout":"compact","display":{"showAgents":true}}'
+agy-hub config set '{"language":"zh-Hans","display":{"showAgents":true}}'
 agy-hub config check
 agy-hub config undo
 ```
 
-`init` 只在配置文件缺失时写入预设。手动编辑时只填需要覆盖的键。以下示例启用 Compact 布局及工具、子代理活动：
-
-```json
-{
-  "lineLayout": "compact",
-  "showSeparators": true,
-  "gitStatus": { "showAheadBehind": true },
-  "display": {
-    "showTools": true,
-    "showAgents": true,
-    "showSessionName": true,
-    "showCacheHitRate": true
-  }
-}
-```
-
-| 配置 | 可用项 |
+| 配置项 | 能调整什么 |
 | --- | --- |
-| 布局 | `language` 支持 `en`、`zh-Hans`、`zh-Hant`。展开模式用 `elementOrder`、`display.mergeGroups` 和 `display.rightAlign` 排列元素，`projectLineOrder` 可在两种模式调整项目行 |
-| Git 与 jj | `gitStatus.showAheadBehind`、`showFileStats`、`showWorktree` 可选。用 `jjStatus.enabled` 打开 Jujutsu，需要本机的 `jj` |
-| 用量 | `display.contextValue` 支持 `percent`、`tokens`、`remaining`、`both`。配额支持已用／剩余口径、绝对或相对重置时间和 `usagePace` 消耗节奏。余额型额度按原始单位显示 |
-| 可选信息 | `display.showTools`、`showSkills`、`showMcp`、`showAgents`、`showTasks`、`showDuration`、`showAuth`、`showConfigCounts`、`showMemoryUsage`、`showCost`、`showSessionTokens` 等 |
-| 配色 | `colors` 接受颜色名、0–255 的 ANSI 色号和 `#rrggbb`。用 `barFilled`、`barEmpty` 改条形字符。设置 `NO_COLOR=1` 可关闭颜色 |
+| `language` | 英语 `en`、简体中文 `zh-Hans`、繁体中文 `zh-Hant` |
+| `elementOrder`、`display.mergeGroups`、`display.rightAlign` | 展开布局的行顺序、合并与对齐 |
+| `projectLineOrder`、`pathLevels` | 项目行的字段顺序、目录显示层级 |
+| `gitStatus`、`jjStatus` | 分支、领先和落后、文件变更、worktree，以及可选的 Jujutsu 状态 |
+| `display` | 上下文与配额的格式和阈值、工具和子代理、会话 token、费用、内存等 |
+| `colors` | 颜色名、0–255 的 ANSI 色号、`#rrggbb`，以及进度条字符。设置 `NO_COLOR=1` 可关闭颜色 |
 
-编辑器支持 JSON Schema 时，先运行 `agy-hub init`，再生成与当前版本匹配的 Schema：
+用 `agy-hub config schema` 查看全部默认值。也可为编辑器生成带字段帮助的 JSON Schema：
 
 ```sh
+agy-hub init
 agy-hub config schema --json-schema > "$(dirname "$(agy-hub config path)")/agy-hub.schema.json"
 agy-hub config set '{"$schema":"./agy-hub.schema.json"}'
 ```
 
-启用 `display.recordPreview` 后，`agy-hub preview --last` 可用上一次的脱敏数据预览当前配置。`agy-hub doctor` 用于本机排查，`agy-hub report` 可生成省略路径和账号数据的诊断。
+模型、上下文、配额和子代理由 `agy` 提供。工具活动可读本地会话日志，必要时可加装 hooks 补充精细记录。数据来源、兼容限制和本地记录的位置见 [Antigravity 集成](docs/integration.md)。
 
-## 数据来源
+## 排查、升级和卸载
 
-模型、上下文、配额和子代理直接来自 `agy`。Gemini 与第三方模型按各自的配额桶显示。工具统计默认关闭，启用后读取当前会话日志。配置计数来自常见的工作区和个人目录，费用汇总仅累计 HUD 开启跟踪后观察到的估算成本。
-
-需要追加目录、精确到工具步骤的活动和单次调用吞吐量时，用 `agy-hub hooks` 生成可选的 `agy-hub` hook 配置，将该条目合并至工作区 `.agents/hooks.json`。已有 hooks 可同时使用。AGY Hub 保存工作区列表、工具名及适用的文件名、调用计时。
-
-统计、hook 元数据和预览保存在 `~/.gemini/antigravity-cli/agy-hub-data/`，也可用 `AGY_HUB_DATA_DIR` 指定位置。只在相应功能启用时写入。可用 `AGY_HUB_DISABLE=1 agy` 本次停用 HUD。
-
-自定义命令输出可放在首行。先设置 `AGY_HUB_ALLOW_EXTRA_CMD=1`，再在 statusLine 命令末尾添加 `--extra-cmd '你的本地命令'`。HUD 只取第一行。
-
-与 Claude HUD 的功能对应关系、数据缺口和验收记录见 [功能对照](docs/parity.md)。
+- 用 `agy-hub doctor` 检查配置、状态栏绑定和命令路径。需要诊断摘要时用 `agy-hub report`。启用 `display.recordPreview` 后可用 `agy-hub preview --last` 回看上一帧。
+- 升级时从新版源码重新安装 npm 包，再运行 `agy-hub install` 更新绑定。用 `agy-hub skill install` 可同时更新已安装的 Skill，手动修改过的副本会保留。
+- 用 `AGY_HUB_DISABLE=1 agy` 暂时停用。永久卸载时，先移除可选的 Skill（`agy-hub skill uninstall`），再用 `agy-hub uninstall` 恢复原状态栏，最后运行 `npm uninstall -g agy-hub`。
 
 ## 开发
 
@@ -114,10 +88,10 @@ npm ci
 npm run check
 ```
 
-检查包含类型、行为、渲染层依赖边界和 npm 发行包的端到端测试。[工程架构](docs/architecture.md)
+检查覆盖类型、行为、渲染层依赖边界以及 npm 包安装和恢复流程。[工程架构](docs/architecture.md)
 
 ## English quick start
 
-From a local checkout, run `npm install -g "./$(npm pack --silent)"`, then `agy-hub setup` for a guided preview and installation. Use `agy-hub setup --configure-only` to adjust an existing HUD. Run `agy-hub skill install` for the local `/agy-hub` command in Antigravity CLI. Requires Node.js 22+ and Antigravity CLI on macOS or Linux.
+From a local checkout, run `npm install -g "./$(npm pack --silent)"`, then `agy-hub setup` for a guided preview and installation. Use `agy-hub setup --configure-only` to adjust an existing HUD. For the optional `/agy-hub` command in Antigravity CLI, run `agy-hub skill install`. Requires Node.js 22+ and Antigravity CLI on macOS or Linux.
 
-布局和配色来自 [Claude HUD](https://github.com/jarrodwatts/claude-hud) v0.15.4（MIT），`agy` 配额结构参考了 [antigravity-cli-statusline](https://github.com/weby-homelab/antigravity-cli-statusline) 和 [Antigravity 官方文档](https://antigravity.google/docs/cli/statusline/)。
+AGY Hub 采用 MIT 许可证。衍生代码的版权声明见 [LICENSE](LICENSE)。

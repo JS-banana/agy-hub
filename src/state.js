@@ -31,7 +31,7 @@ function contextUsage(window) {
   };
 }
 
-/** @typedef {{used: number | null, amount: number | null, exhausted: boolean, reset: number}} QuotaWindow */
+/** @typedef {{used: number | null, amount: number | null, exhausted: boolean, reset: number, resetAt?: number}} QuotaWindow */
 /** @typedef {{short?: QuotaWindow | null, weekly?: QuotaWindow | null, scoped?: boolean, key?: 'argon' | 'gemini' | '3p', disabled?: string[]}} UsageWindows */
 
 /** @param {Record<string, unknown>} quota
@@ -46,10 +46,13 @@ function quotaWindow(quota, key, now) {
   const remaining = fraction !== null && fraction <= 1 ? fraction : null;
   const amount = nonnegative(bucket.remaining_amount);
   if (remaining === null && amount === null) return null;
-  const resetAt = timeValue(bucket.reset_time);
   const resetIn = nonnegative(bucket.reset_in_seconds);
-  const reset = resetAt === null ? (resetIn ?? 0) * 1000 : resetAt - now;
-  return { used: remaining === null ? null : percentage(100 * (1 - remaining)), amount, exhausted: (remaining ?? amount) === 0, reset };
+  const resetAt = timeValue(bucket.reset_time) ?? (resetIn === null ? null : now + resetIn * 1000);
+  return {
+    used: remaining === null ? null : percentage(100 * (1 - remaining)), amount,
+    exhausted: (remaining ?? amount) === 0, reset: resetAt === null ? 0 : resetAt - now,
+    ...(resetAt === null ? {} : { resetAt }),
+  };
 }
 
 /** @param {Record<string, unknown>} quota

@@ -1,36 +1,70 @@
-import { randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+// @ts-check
+import { createHash, randomUUID } from 'node:crypto';
+import { link, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { readTextFile } from './runtime/text-file.js';
 
 const bundledSkill = new URL('../skills/agy-hub/SKILL.md', import.meta.url);
+const fingerprint = /\n<!-- AGY Hub installed SHA-256: ([a-f0-9]{64}) -->\n$/;
+// Version 0.4.0 copied the bundled file verbatim.
+const legacyFingerprint = 'f2a8409de6742bf922fb617a47e510ae1ccbcbd307aa357f0821b2e2bc6e5abb';
 
+/** @param {string} text */
+const digest = (text) => createHash('sha256').update(text).digest('hex');
+
+/** @param {string} installed @param {string} bundled */
+function isManaged(installed, bundled) {
+  if (installed === bundled || digest(installed) === legacyFingerprint) return true;
+  const marker = fingerprint.exec(installed);
+  return marker !== null && digest(installed.slice(0, marker.index)) === marker[1];
+}
+
+/** @param {string} path */
+async function readInstalled(path) {
+  const info = await lstat(path).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return null;
+  if (!info.isFile() || info.size > 128 * 1024) throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);
+  return readTextFile(path, 128 * 1024)?.text ?? null;
+}
+
+/** @param {string} action */
 export async function manageSkill(action, home = homedir()) {
   const path = join(home, '.gemini', 'antigravity-cli', 'skills', 'agy-hub', 'SKILL.md');
   if (action === 'path') return path;
   if (action !== 'install' && action !== 'uninstall') throw new Error('Use agy-hub skill install, uninstall, or path.');
-  const content = await readFile(bundledSkill);
-  const existing = await lstat(path).catch((error) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  });
-  if (existing) {
-    if (!existing.isFile() || existing.size !== content.length || !content.equals(await readFile(path))) {
-      throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);
-    }
-    if (action === 'install') return 'The /agy-hub skill is already installed.';
+  const content = await readFile(bundledSkill, 'utf8');
+  const installed = `${content}\n<!-- AGY Hub installed SHA-256: ${digest(content)} -->\n`;
+  const existing = await readInstalled(path);
+  if (existing !== null && !isManaged(existing, content)) {
+    throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);
+  }
+  async function verifySkill() {
+    if (await readInstalled(path) !== existing) throw new Error(`The skill at ${path} changed during setup. Try again.`);
+  }
+  if (action === 'uninstall') {
+    if (existing === null) return 'The /agy-hub skill is not installed.';
+    await verifySkill();
     await unlink(path);
     return 'Removed the /agy-hub skill. Open a new agy session to reload skills.';
   }
-  if (action === 'uninstall') return 'The /agy-hub skill is not installed.';
+  if (existing === installed) return 'The /agy-hub skill is already installed.';
   const folder = dirname(path);
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const temp = join(folder, `.agy-hub-${randomUUID()}.tmp`);
   try {
-    await writeFile(temp, content, { flag: 'wx', mode: 0o600 });
-    await link(temp, path);
+    await writeFile(temp, installed, { flag: 'wx', mode: 0o600 });
+    if (existing === null) await link(temp, path);
+    else {
+      await verifySkill();
+      await rename(temp, path);
+    }
   } finally {
     await unlink(temp).catch((error) => { if (error.code !== 'ENOENT') throw error; });
   }
-  return 'Installed the /agy-hub skill. Open a new agy session, or run /skills reload in the interactive CLI.';
+  const operation = existing === null ? 'Installed' : 'Updated';
+  return `${operation} the /agy-hub skill. Open a new agy session, or run /skills reload in the interactive CLI.`;
 }

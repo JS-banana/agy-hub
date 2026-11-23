@@ -1,3 +1,4 @@
+// @ts-check
 import { execFileSync } from 'node:child_process';
 import { readActivity } from '../activity.js';
 import { readConfig } from '../config.js';
@@ -10,6 +11,7 @@ import { normalizeState } from '../state.js';
 import { labelText } from '../terminal.js';
 import { readInput } from './input.js';
 
+/** @param {string} [command] */
 function extraLabel(command) {
   if (!command || process.env.AGY_HUB_ALLOW_EXTRA_CMD !== '1' || process.platform === 'win32') return '';
   try {

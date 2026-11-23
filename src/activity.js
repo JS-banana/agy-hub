@@ -97,7 +97,9 @@ function readTail(root, relative) {
     const buffer = Buffer.alloc(Math.min(info.size, MAX_TAIL_BYTES));
     const length = readSync(fd, buffer, 0, buffer.length, start);
     const tail = buffer.toString('utf8', 0, length);
-    return start > 0 ? (tail.includes('\n') ? tail.slice(tail.indexOf('\n') + 1) : '') : tail;
+    if (start === 0) return { text: tail, truncated: false };
+    const firstBreak = tail.indexOf('\n');
+    return { text: firstBreak === -1 ? '' : tail.slice(firstBreak + 1), truncated: true };
   } catch {
     return null;
   } finally {
@@ -113,7 +115,11 @@ export function readActivity({ conversationId, transcriptPath, agentState }, hom
   const roots = transcriptPath === join(appRoot, relative) ? [appRoot, cliRoot] : [cliRoot];
   for (const root of roots) {
     const tail = readTail(root, relative);
-    if (tail !== null) return summarizeTranscript(tail, agentState);
+    if (tail === null) continue;
+    const activity = summarizeTranscript(tail.text, agentState);
+    // The first timestamp in a bounded tail may belong to a much later turn.
+    if (tail.truncated) delete activity.started;
+    return activity;
   }
   return null;
 }

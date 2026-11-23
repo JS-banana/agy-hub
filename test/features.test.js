@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { summarizeTranscript } from '../src/activity.js';
+import { readActivity, summarizeTranscript } from '../src/activity.js';
 import { normalizeConfig } from '../src/config.js';
 import { hookActivity, hookDefinitions, recordHook } from '../src/hooks.js';
 import { configCounts, externalQuota, recordCosts } from '../src/local-data.js';
@@ -49,6 +49,8 @@ test('orders sections and header segments, aligns only fitting sections, and use
 
 test('renders true balance-only quotas and pace indicators without inventing a percentage', () => {
   assert.match(view({ ...sample, quota: { 'gemini-weekly': { remaining_amount: 1234 } } }), /Usage Weekly 1,234 left/);
+  assert.match(view({ ...sample, quota: { 'gemini-weekly': { remaining_amount: 0.004 } } }), /Usage Weekly 0\.004 left/);
+  assert.match(view({ ...sample, quota: { 'gemini-weekly': { remaining_amount: 1e-8 } } }), /Usage Weekly 1E-8 left/);
   const escalating = { ...sample, quota: { 'gemini-5h': { remaining_fraction: 0.76, reset_in_seconds: 16_200 } } };
   assert.match(view(escalating, { display: { usagePace: true, usageThreshold: 70, timeFormat: 'elapsed' } }), /24% ▲ \(10% elapsed\)/);
   assert.match(view(sample, { display: { usageBarEnabled: false, usageValue: 'remaining', timeFormat: 'both' } }),
@@ -72,6 +74,30 @@ test('uses amount and percentage snapshots only for the same model pool and whil
   assert.equal(externalQuota(normalizeState(disabled, NOW + 3000), config).weekly, null);
 });
 
+test('never restores a quota snapshot past its known reset even when the snapshot is still fresh', (t) => {
+  const path = join(temp(t), 'quota.json');
+  const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;
+  const weekly = { 'gemini-weekly': { remaining_fraction: 0.5 } };
+  const native = { ...sample, quota: { ...weekly, 'gemini-5h': { remaining_fraction: 0, reset_in_seconds: 1 } } };
+  const missing = { ...sample, quota: {} };
+  externalQuota(normalizeState(native, NOW), display);
+  assert.equal(externalQuota(normalizeState(missing, NOW + 500), display).short.exhausted, true);
+  const afterReset = externalQuota(normalizeState(missing, NOW + 1000), display);
+  assert.equal(afterReset.short, null);
+  assert.equal(afterReset.weekly.reset, 0);
+
+  // A new window can start with unchanged data, still requiring a fresh snapshot.
+  externalQuota(normalizeState(native, NOW + 1000), display);
+  const renewed = externalQuota(normalizeState(missing, NOW + 1500), display);
+  assert.equal(renewed.short.reset, 500);
+
+  externalQuota(normalizeState({ ...sample, quota: weekly }, NOW + 2000), display);
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).short, null);
+  const alreadyReset = { ...sample, quota: { 'gemini-5h': { remaining_fraction: 0, reset_in_seconds: 0 } } };
+  externalQuota(normalizeState(alreadyReset, NOW + 2500), display);
+  assert.equal(externalQuota(normalizeState(missing, NOW + 2501), display).short, null);
+});
+
 test('records cumulative estimated cost changes once and separates quota weeks by model group', (t) => {
   const directory = temp(t);
   const settings = normalizeConfig().display;
@@ -82,6 +108,64 @@ test('records cumulative estimated cost changes once and separates quota weeks b
   assert.deepEqual(recordCosts({ ...state, cost: 0.375, now: NOW + 1000 }, settings, directory), { day: 0.125, week: 0.125 });
   const thirdParty = { ...state, now: NOW + 2000, cost: 0.5, quota: { key: '3p', weekly: state.quota.weekly } };
   assert.deepEqual(recordCosts(thirdParty, settings, directory), { day: 0.25, week: 0.125 });
+});
+
+test('migrates a large legacy cost ledger without losing exact times or counting unpublished batches', (t) => {
+  const directory = temp(t);
+  const costRoot = join(directory, 'cost');
+  const file = join(costRoot, `${conversationId}.json`);
+  mkdirSync(costRoot);
+  const events = Array.from({ length: 2000 }, (_, index) => ({
+    time: NOW - index * 1000, value: 0.125, group: index % 2 ? '3p' : 'gemini',
+  }));
+  writeFileSync(file, JSON.stringify({ total: 250, events }, null, 2));
+  assert.ok(statSync(file).size > 128 * 1024);
+  const settings = normalizeConfig().display;
+  const quota = { 'gemini-weekly': { remaining_fraction: 0.5, reset_in_seconds: 604_794 } };
+  const state = normalizeState({ ...sample, quota, conversation_id: conversationId, cost: { total_usd: 250.25 } }, NOW + 1000);
+  assert.deepEqual(recordCosts(state, settings, directory), { day: 250.25, week: 0.625 });
+  assert.deepEqual(recordCosts(state, settings, directory), { day: 250.25, week: 0.625 });
+
+  const ledger = JSON.parse(readFileSync(file, 'utf8'));
+  const archiveRoot = join(costRoot, 'archives', conversationId);
+  assert.ok(ledger.archives.length > 0 && ledger.events.length < events.length);
+  for (const archive of ledger.archives) {
+    assert.ok(statSync(join(archiveRoot, `${archive.id}.json`)).size < 128 * 1024);
+  }
+  // An interrupted write can leave a new batch on disk without publishing it.
+  writeFileSync(join(archiveRoot, `${ledger.nextArchive}.json`), JSON.stringify({ events: [{ time: NOW, value: 1024 }] }));
+  assert.deepEqual(recordCosts({ ...state, cost: null }, settings, directory), { day: 250.25, week: 0.625 });
+
+  const muchLater = { ...state, now: state.now + 22 * 86_400_000, cost: 250.5 };
+  assert.deepEqual(recordCosts(muchLater, settings, directory), { day: 0.25, week: 0.25 });
+  assert.equal(existsSync(join(archiveRoot, `${ledger.archives[0].id}.json`)), false);
+});
+
+test('retains an unreadable cost ledger without resetting its cumulative baseline', (t) => {
+  const directory = temp(t);
+  const root = join(directory, 'cost');
+  const file = join(root, `${conversationId}.json`);
+  mkdirSync(root);
+  const unreadable = '{"total":';
+  writeFileSync(file, unreadable);
+  const state = normalizeState({ ...sample, conversation_id: conversationId, cost: { total_usd: 1 } }, NOW);
+  assert.deepEqual(recordCosts(state, normalizeConfig().display, directory), { day: 0, week: null });
+  assert.equal(readFileSync(file, 'utf8'), unreadable);
+});
+
+test('preserves the cost baseline while a stale write lock is recovered', (t) => {
+  const directory = temp(t);
+  const lock = join(directory, 'cost', `${conversationId}.json.lock`);
+  const settings = normalizeConfig().display;
+  const state = normalizeState({ ...sample, conversation_id: conversationId, cost: { total_usd: 1 } }, NOW);
+  assert.deepEqual(recordCosts(state, settings, directory), { day: 0, week: null });
+  writeFileSync(lock, '');
+  const old = new Date(Date.now() - 30_000);
+  utimesSync(lock, old, old);
+  const next = { ...state, cost: 1.25 };
+  assert.deepEqual(recordCosts(next, settings, directory), { day: 0, week: null });
+  assert.equal(existsSync(lock), false);
+  assert.deepEqual(recordCosts(next, settings, directory), { day: 0.25, week: null });
 });
 
 test('combines the documented AGY hook lifecycle with transcript data and excludes secrets', (t) => {
@@ -111,6 +195,71 @@ test('combines the documented AGY hook lifecycle with transcript data and exclud
   }));
   assert.deepEqual(invoke('PreToolUse'), { decision: 'allow' });
   assert.deepEqual(invoke('PostToolUse'), {});
+});
+
+test('reuses hook tool counts while stable, expires running tools, and invalidates on atomic changes', (t) => {
+  const directory = temp(t);
+  const root = join(directory, 'hooks', conversationId);
+  const tools = join(root, 'tools');
+  const cache = join(root, 'tool-activity.json');
+  const state = normalizeState({ ...sample, conversation_id: conversationId }, NOW);
+  const readAt = (now) => hookActivity({ ...state, now }, null, { showTools: true }, directory);
+  const record = (event, stepIdx, name) => recordHook(event, { conversationId, stepIdx, toolCall: { name } }, directory, NOW);
+  recordHook('SessionStart', { conversationId }, directory, NOW);
+  record('PreToolUse', 1, 'read_file');
+  assert.equal(readAt(NOW).running[0].name, 'Read');
+
+  const firstCache = statSync(cache).ino;
+  const elapsed = NOW + 300_000;
+  assert.equal(readAt(elapsed).running, undefined);
+  assert.equal(statSync(cache).ino, firstCache);
+  record('PostToolUse', 1, 'read_file');
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read']);
+  record('PostToolUse', 2, 'edit_file');
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read', 'Edit']);
+  renameSync(join(tools, '2.post.json'), join(tools, '1.post.json'));
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Edit']);
+  rmSync(join(tools, '1.post.json'));
+  assert.deepEqual(readAt(elapsed).completed, []);
+
+  record('PostToolUse', 3, 'read_file');
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read']);
+  const saved = JSON.parse(readFileSync(cache, 'utf8'));
+  writeFileSync(cache, JSON.stringify({ ...saved, completed: [{ name: 'invalid', count: -1 }] }));
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read']);
+
+  const lastCache = readFileSync(cache, 'utf8');
+  writeFileSync(join(tools, '4.post.json'), '{');
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read']);
+  assert.equal(readFileSync(cache, 'utf8'), lastCache);
+  record('PostToolUse', 4, 'write_file');
+  assert.deepEqual(readAt(elapsed).completed.map(({ name }) => name), ['Read', 'Write']);
+});
+
+test('uses hook session start instead of the first event in a truncated transcript', (t) => {
+  const home = temp(t);
+  const root = join(home, 'data');
+  const file = join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  mkdirSync(dirname(file), { recursive: true });
+  const started = NOW - 7_200_000;
+  const lastReply = NOW - 30_000;
+  const initial = { type: 'USER_INPUT', created_at: new Date(started).toISOString() };
+  const recent = { type: 'PLANNER_RESPONSE', created_at: new Date(lastReply).toISOString() };
+  const state = normalizeState({ ...sample, conversation_id: conversationId }, NOW);
+  const config = normalizeConfig({ display: { showDuration: true, showSessionStartDate: true } });
+  writeFileSync(file, [initial, recent].map((event) => JSON.stringify(event)).join('\n'));
+  assert.equal(readActivity(state, home).started, started);
+
+  writeFileSync(file, [{ ...initial, text: 'x'.repeat(8 * 1024 * 1024) }, recent]
+    .map((event) => JSON.stringify(event)).join('\n'));
+  const tail = readActivity(state, home);
+  assert.equal(tail.started, undefined);
+  assert.equal(tail.lastReply, lastReply);
+  assert.doesNotMatch(render(state, config, { activity: tail, color: false }), /Started|⏱/);
+  recordHook('SessionStart', { conversationId }, root, started);
+  const activity = hookActivity(state, tail, config.display, root);
+  assert.equal(activity.started, started);
+  assert.match(render(state, config, { activity, color: false }), /⏱️  2h/);
 });
 
 test('renders tool and subagent stages with known transcript timings and no invented agent duration', () => {

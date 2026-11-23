@@ -21,4 +21,9 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - run: npm ci
+      - name: Install Jujutsu for the macOS integration test
+        if: matrix.os == 'macos-latest' && matrix.node == '24'
+        run: |
+          brew install jj
+          jj --version
       - run: npm run check
