@@ -11,6 +11,8 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 
 ## 安装
 
+如果已有发布版本，可从 [GitHub Releases](https://github.com/JS-banana/agy-hub/releases) 下载 `.tgz` 文件，用 `npm install -g` 安装该文件，再运行 `agy-hub setup`。
+
 需要 macOS 或 Linux、Node.js 22 或更新版本，以及支持自定义状态栏的 `agy`。在 AGY Hub 源码目录运行：
 
 ```sh
@@ -94,6 +96,6 @@ npm ci
 npm run check
 ```
 
-检查覆盖类型、行为、渲染层依赖边界以及 npm 包安装和恢复流程。[工程架构](docs/architecture.md)
+检查覆盖类型、行为、渲染层依赖边界以及 npm 包安装和恢复流程。[贡献与发布指南](CONTRIBUTING.md) · [工程架构](docs/architecture.md)
 
 AGY Hub 采用 MIT 许可证。衍生代码的版权声明见 [LICENSE](LICENSE)。

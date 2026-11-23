@@ -71,7 +71,7 @@ try {
   const packed = Array.isArray(packedResult) ? packedResult[0] : packedResult[manifest.name];
   assert.ok(packed, `npm pack must report the ${manifest.name} archive`);
   const packedPaths = new Set(packed.files.map(({ path }) => path));
-  for (const path of ['README.md', 'README.zh.md', 'LICENSE', 'docs/integration.md', 'docs/architecture.md', 'src/cli.js', 'skills/agy-hub/SKILL.md']) {
+  for (const path of ['README.md', 'README.zh.md', 'CONTRIBUTING.md', 'LICENSE', 'docs/integration.md', 'docs/architecture.md', 'src/cli.js', 'skills/agy-hub/SKILL.md']) {
     assert.ok(packedPaths.has(path), `The release archive must contain ${path}`);
   }
   const archive = join(archiveDir, packed.filename);
