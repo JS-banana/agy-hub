@@ -43,6 +43,27 @@ test('renders the upstream two-line HUD style with native agy values', () => {
   assert.match(actual, /\x1b\[94m███\x1b\[2m░/);
 });
 
+test('uses the label color for short and weekly quota countdowns', () => {
+  const state = normalizeState({
+    ...payload, terminal_width: 160,
+    quota: {
+      ...payload.quota,
+      'gemini-weekly': { remaining_fraction: 0.62, reset_in_seconds: 583_200 },
+    },
+  });
+  const display = { sevenDayThreshold: 0 };
+  const expanded = normalizeConfig({ display });
+  const actual = render(state, expanded);
+  assert.match(actual, /\x1b\[2m\(resets in 1h 30m\)\x1b\[0m/);
+  assert.match(actual, /\x1b\[2m\(resets in 6d 18h\)\x1b\[0m/);
+  assert.equal(stripColor(actual), render(state, expanded, { color: false }));
+
+  const compact = normalizeConfig({ lineLayout: 'compact', display, colors: { label: '#708090' } });
+  const custom = render(state, compact);
+  assert.match(custom, /\x1b\[38;2;112;128;144m\(1h 30m \/ 5h\)\x1b\[0m/);
+  assert.match(custom, /\x1b\[38;2;112;128;144m\(6d 18h \/ 7d\)\x1b\[0m/);
+});
+
 test('splits narrow bars and keeps compact layout on one line when it fits', () => {
   const narrow = render(normalizeState({ ...payload, terminal_width: 40 }), normalizeConfig(), { git, color: false });
   assert.equal(narrow, '[Gemini Flash] │ my-project git:(main*)\nContext ██░░ 45%\nUsage   █░░░ 25% (resets in 1h 30m)');

@@ -154,7 +154,7 @@ export function usageParts(frame, compact, align = false) {
       display.usageBarEnabled && !display.usageCompact && window.used !== null ? metricBar(frame, window.used, shade) : '',
       style(quotaValue, shade),
       trend ? style('▲', trend) : '',
-      reset ? `(${reset})` : '',
+      reset ? style(`(${reset})`, 'label') : '',
     ].filter(Boolean).join(' ');
   };
   if (!short) {
