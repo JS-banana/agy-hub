@@ -113,8 +113,9 @@ export function normalizeState(input, now = Date.now()) {
   const workspace = objectOrEmpty(payload.workspace);
   const window = objectOrEmpty(payload.context_window);
   const modelSource = objectOrEmpty(payload.model);
-  const model = labelText(modelSource.display_name) || labelText(modelSource.id);
-  const identity = `${model} ${labelText(modelSource.id)}`;
+  const modelId = labelText(modelSource.id);
+  const model = labelText(modelSource.display_name) || modelId;
+  const identity = `${model} ${modelId}`;
   const terminalWidth = nonnegative(payload.terminal_width);
   /** @type {unknown[]} */
   const dirs = Array.isArray(workspace.added_dirs) ? workspace.added_dirs : [];
@@ -123,7 +124,7 @@ export function normalizeState(input, now = Date.now()) {
     launchDir: textValue(payload.cwd) ?? textValue(workspace.project_dir),
     addedDirs: dirs.filter((path) => typeof path === 'string').slice(0, 5),
     vcs: textValue(objectOrEmpty(payload.vcs).type),
-    model,
+    model, modelId,
     now,
     effort: labelText(modelSource.effort),
     title: labelText(payload.conversation_title),
@@ -139,7 +140,7 @@ export function normalizeState(input, now = Date.now()) {
     plan: labelText(payload.plan_tier),
     email: labelText(payload.email),
     sandbox: objectOrEmpty(payload.sandbox).enabled === true,
-    cycleMode: labelText(payload.cycle_mode),
+    cycleMode: labelText(payload.cycle_mode) || labelText(payload.mode) || labelText(payload.agent_mode),
     artifacts: nonnegative(payload.artifact_count),
     tasks: nonnegative(payload.task_count),
     cost: nonnegative(objectOrEmpty(payload.cost).total_usd),

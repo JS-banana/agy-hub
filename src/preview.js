@@ -7,9 +7,9 @@ import { normalizeState } from './state.js';
  */
 export function samplePreview(config, { width = 110, color = true } = {}) {
   const state = normalizeState({
-    cwd: '/workspace/my-project', model: { display_name: 'Gemini 3.8 Flash', effort: 'high' },
+    cwd: '/workspace/my-project', model: { id: 'gemini-3.8-flash-high', display_name: 'Gemini 3.8 Flash', effort: 'high' },
     workspace: { current_dir: '/workspace/my-project' },
-    conversation_title: 'Review authentication', version: '1.5.14',
+    conversation_title: 'Review authentication', version: '1.5.14', cycle_mode: 'auto',
     context_window: { used_percentage: 45, context_window_size: 200_000, total_input_tokens: 59_000, total_output_tokens: 3200 },
     terminal_width: width,
     quota: { 'gemini-5h': { remaining_fraction: 0.75, reset_in_seconds: 5400 } },

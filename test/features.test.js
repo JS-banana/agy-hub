@@ -9,6 +9,7 @@ import { readActivity, summarizeTranscript } from '../src/activity.js';
 import { normalizeConfig } from '../src/config.js';
 import { hookActivity, hookDefinitions, recordHook } from '../src/hooks.js';
 import { configCounts, externalQuota, recordCosts } from '../src/local-data.js';
+import { resolveCost } from '../src/pricing.js';
 import { render } from '../src/render.js';
 import { normalizeState } from '../src/state.js';
 import { stripColor, visibleWidth } from '../src/terminal.js';
@@ -29,6 +30,69 @@ function temp(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
+
+test('prefers a reported cost including zero and estimates absent amounts from cumulative tokens', () => {
+  const display = { display: { showCost: true, modelOverride: 'Custom badge' } };
+  const payload = {
+    model: { id: 'gemini-3.8-flash-medium', display_name: 'Gemini 3.8 Flash (Medium)' },
+    context_window: { total_input_tokens: 1_000_000, total_output_tokens: 1_000_000,
+      current_usage: { input_tokens: 1, output_tokens: 1 } },
+  };
+  assert.match(view(payload, display), /Cost ≈\$4\.50/);
+  assert.match(view({ ...payload, cost: { total_usd: 0 } }, display), /Cost \$0\.00/);
+  assert.match(view({ ...payload, cost: { total_usd: 0.75 } }, display), /Cost \$0\.75/);
+  assert.doesNotMatch(view(payload), /Cost/);
+  assert.doesNotMatch(view({ ...payload, context_window: { current_usage: payload.context_window.current_usage } }, display), /Cost/);
+  assert.doesNotMatch(view({ ...payload, context_window: { total_input_tokens: 123 } }, display), /Cost/);
+  assert.doesNotMatch(view({ ...payload, context_window: { total_input_tokens: 0, total_output_tokens: 0 } }, display), /Cost/);
+  assert.match(view({ ...payload, context_window: { total_input_tokens: 1, total_output_tokens: 0 } }, display), /Cost <\$0\.0001/);
+});
+
+test('resolves official model aliases and rate cutovers without a default price', () => {
+  const window = { total_input_tokens: 1_000_000, total_output_tokens: 1_000_000 };
+  const local = (model, now = NOW) => resolveCost(normalizeState({ model, context_window: window }, now));
+  const newYear = Date.UTC(2027, 0, 1);
+  const december = Date.UTC(2026, 11, 1);
+  assert.equal(local({ id: 'models/gemini-3.8-flash-high' }, newYear - 1).usd, 4.50);
+  assert.equal(local({ id: 'models/gemini-3.8-flash-high' }, newYear).usd, 9);
+  assert.equal(local({ display_name: 'Gemini 4 Argon (Medium)' }, december - 1).usd, 12);
+  assert.equal(local({ display_name: 'Gemini 4 Argon (Medium)' }, december).usd, 24);
+  assert.equal(local({ id: 'gemini-3.1-pro-high' }).usd, 14);
+  assert.equal(local({ id: 'claude-opus-5-5-max', display_name: 'Claude Sonnet 5.5 (Thinking)' }).usd, 24);
+  assert.equal(local({ display_name: 'Claude Sonnet 5.5 (Thinking)' }).usd, 12);
+  assert.equal(local({ id: 'claude-opus-4-6' }).usd, 30);
+  assert.equal(local({ id: 'claude-opus-4-20250514' }).usd, 90);
+  assert.equal(local({ id: 'claude-3-7-sonnet-20250219' }).usd, 18);
+  for (const id of ['gemini-3.5-pro', 'gemini-3.8-flash-tts', 'gemini-pro-orchestrator-argon', 'future-model']) {
+    assert.equal(local({ id }), null);
+  }
+});
+
+test('stdin and preview replay show local cost and mode without writing the estimate to the ledger', (t) => {
+  const directory = temp(t);
+  const config = join(directory, 'config.json');
+  writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display: {
+    showCost: true, showDailyCost: true, showAgentModeOnly: true, recordPreview: true,
+  } }));
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const run = (args, payload) => execFileSync(process.execPath, [cli, ...args], {
+    input: payload && JSON.stringify(payload), encoding: 'utf8',
+    env: { ...process.env, AGY_HUB_CONFIG: config, AGY_HUB_DATA_DIR: directory, AGY_HUB_DISABLE: '0', NO_COLOR: '1' },
+  });
+  const payload = {
+    conversation_id: conversationId, model: { id: 'claude-sonnet-5-5-high' },
+    cost: null, context_window: { total_input_tokens: 400_000, total_output_tokens: 100_000 },
+    agent_state: 'idle', agent_mode: 'plan', terminal_width: 100,
+  };
+  const frame = run([], payload);
+  assert.match(frame, /Cost ≈\$1\.80/);
+  assert.match(frame, /Plan mode/);
+  assert.doesNotMatch(frame, /idle/);
+  assert.equal(existsSync(join(directory, 'cost')), false);
+  assert.equal(run(['preview', '--last', '--plain']), frame);
+  assert.match(run([], { ...payload, cost: { total_usd: 0 } }), /Cost \$0\.00/);
+  assert.equal(existsSync(join(directory, 'cost', `${conversationId}.json`)), true);
+});
 
 test('orders sections and header segments, aligns only fitting sections, and uses localized numbers', () => {
   const row = view(sample, {

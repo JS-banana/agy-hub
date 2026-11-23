@@ -1,7 +1,8 @@
 // @ts-check
-import { MAX_TERMINAL_WIDTH, pack, paint, truncate } from './terminal.js';
+import { MAX_TERMINAL_WIDTH, labelText, pack, paint, truncate } from './terminal.js';
 import { clock, contextPart, duration, memoryPart, tokens, usageParts } from './metrics.js';
 import { messages } from './messages.js';
+import { resolveCost } from './pricing.js';
 
 import { DIVIDER, PIPE, expandedRows, formatRows } from './render/layout.js';
 import { addedDirs, changedFiles, projectParts } from './render/project.js';
@@ -41,10 +42,14 @@ function modelBadge(frame) {
 function costPart(frame) {
   const { words, config, state, style, costTotals } = frame;
   /** @param {number} value */
-  const money = (value) => `$${value.toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
+  const money = (value, local = false) => {
+    if (local && value < 0.00005) return '<$0.0001';
+    return `${local ? '≈' : ''}$${value.toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
+  };
   const { display } = config;
+  const cost = display.showCost ? resolveCost(state) : null;
   const costs = [
-    display.showCost && state.cost !== null ? `${words.cost} ${money(state.cost)}` : '',
+    cost ? `${words.cost} ${money(cost.usd, cost.local)}` : '',
     display.showDailyCost && costTotals?.day != null ? `${words.today} ${money(costTotals.day)}` : '',
     display.showWeeklyCost && costTotals?.week != null ? `${words.week} ${money(costTotals.week)}` : '',
   ].filter(Boolean);
@@ -71,8 +76,7 @@ function header(frame, compact) {
   const entries = new Map([
     ['model', [model]],
     ['project', projectParts(frame, compact)],
-    ['agent', [dim(display.showAgentState ? [state.agent, state.agentState, state.cycleMode,
-      state.sandbox ? 'Sandbox' : ''].filter(Boolean).join(' · ') : '')]],
+    ['agent', [dim(agentPart(frame))]],
     ['sessionName', [dim(display.showSessionName ? state.title : '')]],
     ['version', [dim(display.showAgyVersion && state.version ? `agy v${state.version}` : '')]],
     ['extra', [dim(frame.extra)]],
@@ -84,6 +88,18 @@ function header(frame, compact) {
   const parts = [...new Set([...config.projectLineOrder, ...entries.keys()])].flatMap((key) => entries.get(key) ?? []);
   const custom = display.customLine ? style(display.customLine, 'custom') : '';
   return display.customLinePosition === 'first' ? [custom, ...parts] : [...parts, custom];
+}
+
+/** @param {Frame} frame */
+function agentPart({ config: { display }, state, words }) {
+  if (display.showAgentModeOnly) {
+    const mode = labelText(state.cycleMode);
+    const key = mode.toLowerCase().replaceAll('_', '-');
+    return Object.hasOwn(words.agentModes, key)
+      ? words.agentModes[/** @type {keyof typeof words.agentModes} */ (key)] : mode;
+  }
+  if (!display.showAgentState) return '';
+  return [state.agent, state.agentState, state.cycleMode, state.sandbox ? 'Sandbox' : ''].filter(Boolean).join(' · ');
 }
 
 /** @param {Frame} frame @param {string} key */

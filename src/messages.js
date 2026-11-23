@@ -6,6 +6,7 @@ const en = {
   tokens: 'Tokens', start: 'Started', reply: 'Last reply', limit: 'Limit reached',
   input: 'in', cacheTokens: 'cache', output: 'out', resets: 'resets', resetsIn: 'resets in', left: 'left',
   elapsed: '% elapsed', tools: 'Tool use', tasks: 'Background tasks', artifacts: 'Artifacts',
+  agentModes: { default: 'Default mode', 'accept-edits': 'Accept edits mode', auto: 'Auto mode', plan: 'Plan mode' },
 };
 
 const hans = {
@@ -14,6 +15,7 @@ const hans = {
   tokens: '词元', start: '开始', reply: '上次回复', limit: '已达上限',
   input: '输入', cacheTokens: '缓存', output: '输出', resets: '重置于', resetsIn: '重置剩余', left: '剩余',
   elapsed: '% 已过', tools: '调用工具', tasks: '后台任务', artifacts: '产物',
+  agentModes: { default: '默认模式', 'accept-edits': '接受编辑模式', auto: '自动模式', plan: '规划模式' },
 };
 
 const hant = {
@@ -21,6 +23,7 @@ const hant = {
   cost: '費用', week: '本週', tokens: 'Token', start: '開始', reply: '上次回覆', limit: '已達上限',
   input: '輸入', cacheTokens: '快取', output: '輸出', resets: '重置於', resetsIn: '重置剩餘',
   left: '剩餘', elapsed: '% 已過', tasks: '背景任務', artifacts: '產物',
+  agentModes: { default: '預設模式', 'accept-edits': '接受編輯模式', auto: '自動模式', plan: '規劃模式' },
 };
 
 /** @param {import('./config-schema.js').HudConfig['language']} language */

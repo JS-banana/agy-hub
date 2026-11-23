@@ -25,6 +25,13 @@ const payload = {
 };
 const git = { branch: 'main', dirty: true };
 
+test('selects the first usable mode from cycle_mode, mode, and agent_mode', () => {
+  assert.equal(normalizeState({ cycle_mode: 'auto', mode: 'plan', agent_mode: 'default' }).cycleMode, 'auto');
+  assert.equal(normalizeState({ cycle_mode: '  ', mode: '\x1b[31mplan\x1b[0m', agent_mode: 'auto' }).cycleMode, 'plan');
+  assert.equal(normalizeState({ cycle_mode: null, mode: false, agent_mode: 'accept-edits' }).cycleMode, 'accept-edits');
+  assert.equal(normalizeState({ cycle_mode: {}, vim: { mode: 'INSERT' } }).cycleMode, '');
+});
+
 test('renders the upstream two-line HUD style with native agy values', () => {
   const actual = render(normalizeState(payload), normalizeConfig(), { git });
   assert.equal(stripColor(actual), [
@@ -49,6 +56,27 @@ test('bounds alignment even when a payload reports an implausibly wide terminal'
   const lines = render(state, config, { git, color: false }).split('\n');
   assert.equal(visibleWidth(lines[1]), 1000);
   assert.match(lines[1], /Usage .*25%/);
+});
+
+test('renders execution mode on its own without changing the full agent status', () => {
+  const state = normalizeState({ ...payload, cycle_mode: 'auto', agent_state: 'idle',
+    agent: { name: 'reviewer' }, sandbox: { enabled: true } });
+  const hud = (settings) => render(state, normalizeConfig(settings), { color: false });
+  assert.match(hud({ display: { showAgentState: true } }), /reviewer · idle · auto · Sandbox/);
+  const modeOnly = hud({ display: { showAgentModeOnly: true } });
+  assert.match(modeOnly, /Auto mode/);
+  assert.doesNotMatch(modeOnly, /reviewer|idle|Sandbox/);
+  const both = hud({ display: { showAgentState: true, showAgentModeOnly: true } });
+  assert.equal(both, modeOnly);
+  assert.doesNotMatch(hud({}), /Auto mode|reviewer/);
+
+  const compact = normalizeConfig({ lineLayout: 'compact', language: 'zh-Hant', display: { showAgentModeOnly: true } });
+  const plan = normalizeState({ ...payload, cycle_mode: 'plan' });
+  assert.match(render(plan, compact, { color: false }), /規劃模式/);
+  const missing = normalizeState({ ...payload, agent_state: 'idle' });
+  assert.doesNotMatch(render(missing, compact, { color: false }), /模式|idle/);
+  const unknown = normalizeState({ ...payload, cycle_mode: 'custom-review' });
+  assert.match(render(unknown, compact, { color: false }), /custom-review/);
 });
 
 test('displays only the current model quota and respects disabled and dedicated buckets', () => {
