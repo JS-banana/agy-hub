@@ -11,6 +11,8 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 
 ## Install
 
+Download a package from [GitHub Releases](https://github.com/JS-banana/agy-hub/releases) once a version is published, then install the downloaded `.tgz` with `npm install -g`. Run `agy-hub setup` after installing it.
+
 Requires macOS or Linux, Node.js 22 or later, and an `agy` version that supports custom status lines. From the AGY Hub source directory, run the following commands.
 
 ```sh
@@ -93,6 +95,6 @@ npm ci
 npm run check
 ```
 
-Checks cover types, behavior, renderer boundaries, and npm package installation and recovery. [Architecture](docs/architecture.md)
+Checks cover types, behavior, renderer boundaries, and npm package installation and recovery. [Contributing and releases](CONTRIBUTING.md) · [Architecture](docs/architecture.md)
 
 AGY Hub is MIT-licensed. [License and attribution](LICENSE)
