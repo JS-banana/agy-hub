@@ -134,4 +134,4 @@ npm ci
 npm run check
 ```
 
-[Contributing](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [MIT License](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/architecture.md) · [MIT License](LICENSE)

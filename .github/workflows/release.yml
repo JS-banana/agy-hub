@@ -45,6 +45,7 @@ jobs:
           else
             tag=$(node scripts/release-tag.js)
           fi
+          node scripts/release-notes.js "$tag" > "$RUNNER_TEMP/release-notes.md"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Pack and checksum
         shell: bash
@@ -61,7 +62,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         shell: bash
         run: |
-          args=(--verify-tag --generate-notes)
+          args=(--verify-tag --notes-file "$RUNNER_TEMP/release-notes.md")
           if [[ "$TAG" == *-* ]]; then
             args+=(--prerelease)
           fi
