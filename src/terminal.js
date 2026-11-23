@@ -1,6 +1,9 @@
 import { ansiColors } from './config.js';
+import { pathToFileURL } from 'node:url';
+import { isAbsolute } from 'node:path';
 
-const SGR = /\x1b\[[0-9;]*m/g;
+const CODES = /\x1b(?:\[[0-9;]*m|\]8;;[^\x1b]*\x1b\\)/g;
+const CLOSE_LINK = '\x1b]8;;\x1b\\';
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -31,7 +34,7 @@ function cellWidth(segment) {
   return visible ? (isWide(visible.codePointAt(0)) ? 2 : 1) : 0;
 }
 
-export const stripColor = (text) => text.replace(SGR, '');
+export const stripColor = (text) => text.replace(CODES, '');
 
 export function visibleWidth(text) {
   let width = 0;
@@ -39,7 +42,7 @@ export function visibleWidth(text) {
   return width;
 }
 
-function truncate(text, width) {
+export function truncate(text, width) {
   if (visibleWidth(text) <= width) return text;
   const suffix = '.'.repeat(Math.min(width, 3));
   const limit = width - suffix.length;
@@ -55,14 +58,16 @@ function truncate(text, width) {
   let result = '';
   let previous = 0;
   let kept = 0;
-  for (const match of text.matchAll(SGR)) {
+  let openLink = false;
+  for (const match of text.matchAll(CODES)) {
     const chunk = text.slice(previous, match.index);
     if (kept + chunk.length >= end) break;
     result += chunk + match[0];
+    if (match[0].startsWith('\x1b]8;;')) openLink = match[0] !== CLOSE_LINK;
     kept += chunk.length;
     previous = match.index + match[0].length;
   }
-  result += text.slice(previous, previous + end - kept) + suffix;
+  result += text.slice(previous, previous + end - kept) + (openLink ? CLOSE_LINK : '') + suffix;
   return result.includes('\x1b') ? result + RESET : result;
 }
 
@@ -96,9 +101,15 @@ export function paint(text, color, enabled) {
   return enabled ? `${ansi(color)}${text}${RESET}` : text;
 }
 
-export function bar(percent, width, color, enabled) {
+export function bar(percent, width, color, enabled, palette) {
   const filled = Math.round(percent / 100 * width);
-  const blocks = '█'.repeat(filled);
-  const rest = '░'.repeat(width - filled);
+  const glyph = (value, fallback) => value && visibleWidth(value) === 1 ? value : fallback;
+  const blocks = glyph(palette?.barFilled, '█').repeat(filled);
+  const rest = glyph(palette?.barEmpty, '░').repeat(width - filled);
   return enabled ? `${ansi(color)}${blocks}${DIM}${rest}${RESET}` : blocks + rest;
+}
+
+export function linkPath(path, text, enabled) {
+  if (!enabled || typeof path !== 'string' || !isAbsolute(path) || /[\p{Cc}\p{Bidi_Control}]/u.test(path)) return text;
+  return `\x1b]8;;${pathToFileURL(path).href}\x1b\\${text}${CLOSE_LINK}`;
 }

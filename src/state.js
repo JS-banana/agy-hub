@@ -1,7 +1,9 @@
 import { labelText } from './terminal.js';
 
-const nonnegative = (value) => Number.isFinite(value) && value >= 0 ? value : null;
-const percentage = (value) => Math.round(Math.max(0, Math.min(100, value)));
+export const nonnegative = (value) => Number.isFinite(value) && value >= 0 ? value : null;
+export const percentage = (value) => Math.round(Math.max(0, Math.min(100, value)));
+export const timeValue = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+export const validConversation = (id) => typeof id === 'string' && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id);
 
 function contextUsage(window) {
   if (!window || typeof window !== 'object') return null;
@@ -10,40 +12,51 @@ function contextUsage(window) {
   const cacheRead = nonnegative(current?.cache_read_input_tokens);
   const cacheWrite = nonnegative(current?.cache_creation_input_tokens);
   const cache = cacheRead === null && cacheWrite === null ? null : (cacheRead ?? 0) + (cacheWrite ?? 0);
-  const size = nonnegative(window.context_window_size);
+  const size = nonnegative(window.context_window_size) || null;
 
   let used = nonnegative(window.used_percentage);
   const remaining = nonnegative(window.remaining_percentage);
   if (used === null && remaining !== null && remaining <= 100) used = 100 - remaining;
-  if (used === null && size > 0 && input !== null) used = 100 * ((input + (cache ?? 0)) / size);
-  return used === null ? null : { used: percentage(used), input, cache };
+  const fallbackTokens = input === null ? null : input + (cache ?? 0);
+  if (used === null && size !== null && fallbackTokens !== null) used = 100 * fallbackTokens / size;
+  const tokens = size !== null && used !== null ? Math.round(size * Math.min(used, 100) / 100) : fallbackTokens;
+  return used === null && tokens === null ? null : {
+    used: used === null ? null : percentage(used), input, cache, cacheRead, size, tokens,
+  };
 }
 
 function quotaWindow(quota, key, now) {
   const bucket = quota?.[key];
   if (bucket?.disabled === true) return null;
-  const remaining = nonnegative(bucket?.remaining_fraction);
-  if (remaining === null || remaining > 1) return null;
-  const resetAt = typeof bucket.reset_time === 'string' ? Date.parse(bucket.reset_time) : NaN;
+  const fraction = nonnegative(bucket?.remaining_fraction);
+  const remaining = fraction !== null && fraction <= 1 ? fraction : null;
+  const amount = nonnegative(bucket?.remaining_amount);
+  if (remaining === null && amount === null) return null;
+  const resetAt = timeValue(bucket.reset_time);
   const resetIn = nonnegative(bucket.reset_in_seconds);
-  const reset = Number.isFinite(resetAt) ? resetAt - now : (resetIn ?? 0) * 1000;
-  return { used: percentage(100 * (1 - remaining)), exhausted: remaining === 0, reset };
+  const reset = resetAt === null ? (resetIn ?? 0) * 1000 : resetAt - now;
+  return { used: remaining === null ? null : percentage(100 * (1 - remaining)), amount, exhausted: (remaining ?? amount) === 0, reset };
 }
 
 function usageWindows(quota, identity, now) {
   const group = (key) => ({
     short: quotaWindow(quota, `${key}-5h`, now),
     weekly: quotaWindow(quota, `${key}-weekly`, now),
+    disabled: [quota?.[`${key}-5h`]?.disabled === true ? 'short' : '',
+      quota?.[`${key}-weekly`]?.disabled === true ? 'weekly' : ''].filter(Boolean),
   });
   const gemini = group('gemini');
   const thirdParty = group('3p');
   const argon = /\bargon\b/i.test(identity) ? quotaWindow(quota, 'gemini-argon-wtu-weekly', now) : null;
-  if (argon) return { weekly: argon };
-  if (/\bgemini\b/i.test(identity)) return gemini;
-  if (/\b(claude|opus|sonnet|haiku|gpt|openai|deepseek|grok|kimi|glm|qwen|minimax)\b/i.test(identity)) return thirdParty;
+  if (argon) return { weekly: argon, scoped: true, key: 'argon' };
+  if (/\bargon\b/i.test(identity) && !gemini.short && !gemini.weekly) {
+    return { key: 'argon', disabled: quota?.['gemini-argon-wtu-weekly']?.disabled === true ? ['weekly'] : [] };
+  }
+  if (/\bgemini\b/i.test(identity)) return { ...gemini, key: 'gemini' };
+  if (/\b(claude|opus|sonnet|haiku|gpt|openai|deepseek|grok|kimi|glm|qwen|minimax)\b/i.test(identity)) return { ...thirdParty, key: '3p' };
   const hasGemini = Boolean(gemini.short || gemini.weekly);
   const hasThirdParty = Boolean(thirdParty.short || thirdParty.weekly);
-  if (hasGemini !== hasThirdParty) return hasGemini ? gemini : thirdParty;
+  if (hasGemini !== hasThirdParty) return hasGemini ? { ...gemini, key: 'gemini' } : { ...thirdParty, key: '3p' };
   return {};
 }
 
@@ -54,7 +67,11 @@ function subagents(entries) {
     if (!name || !['running', 'completed'].includes(entry.status)) return [];
     const model = labelText(entry.model?.display_name) || labelText(entry.model?.id) || labelText(entry.model);
     const role = labelText(entry.role);
-    return [{ name, model, role: role === name ? '' : role, running: entry.status === 'running' }];
+    return [{
+      name, model, role: role === name ? '' : role, running: entry.status === 'running',
+      effort: labelText(entry.effort ?? entry.model?.effort),
+      start: timeValue(entry.started_at), end: timeValue(entry.completed_at),
+    }];
   });
 }
 
@@ -63,11 +80,15 @@ export function normalizeState(payload, now = Date.now()) {
   const model = labelText(payload?.model?.display_name) || labelText(payload?.model?.id);
   const identity = `${model} ${labelText(payload?.model?.id)}`;
   const terminalWidth = payload?.terminal_width;
+  const pathValue = (value) => typeof value === 'string' && value.length > 0 ? value : undefined;
   return {
     cwd: [payload?.workspace?.current_dir, payload?.cwd, payload?.workspace?.project_dir]
       .find((value) => typeof value === 'string' && value.length > 0),
+    launchDir: pathValue(payload?.cwd) ?? pathValue(payload?.workspace?.project_dir),
+    addedDirs: Array.isArray(payload?.workspace?.added_dirs) ? payload.workspace.added_dirs.filter((path) => typeof path === 'string').slice(0, 5) : [],
     vcs: payload?.vcs?.type,
     model,
+    now,
     effort: labelText(payload?.model?.effort),
     title: labelText(payload?.conversation_title),
     version: labelText(payload?.version),
@@ -78,6 +99,12 @@ export function normalizeState(payload, now = Date.now()) {
     conversationId: payload?.conversation_id ?? payload?.session_id,
     transcriptPath: payload?.transcript_path,
     agentState: payload?.agent_state,
+    agent: labelText(payload?.agent?.name),
+    plan: labelText(payload?.plan_tier),
+    email: labelText(payload?.email),
+    sandbox: payload?.sandbox?.enabled === true,
+    cycleMode: labelText(payload?.cycle_mode),
+    artifacts: nonnegative(payload?.artifact_count),
     tasks: nonnegative(payload?.task_count),
     cost: nonnegative(payload?.cost?.total_usd),
     input: nonnegative(window?.total_input_tokens),

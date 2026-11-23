@@ -36,7 +36,7 @@ node src/cli.js uninstall
 
 ## 自定义
 
-可选配置文件为 `~/.gemini/antigravity-cli/agy-hub.json`，也可以用 `AGY_HUB_CONFIG` 指定路径。只需填写想改的键。以下示例启用 Compact 布局及工具和子代理活动：
+配置保存在 `~/.gemini/antigravity-cli/agy-hub.json`，也可以用 `AGY_HUB_CONFIG` 指定路径。以下示例启用 Compact 布局及工具和子代理活动：
 
 ```json
 {
@@ -46,29 +46,41 @@ node src/cli.js uninstall
   "display": {
     "showTools": true,
     "showAgents": true,
-    "showSessionName": true
+    "showSessionName": true,
+    "showCacheHitRate": true
   }
 }
 ```
 
 | 配置 | 可用项 |
 | --- | --- |
-| 布局 | `lineLayout` 为 `expanded`（默认）或 `compact`，`pathLevels` 为目录层数或 `"full"`，`maxWidth` 限制列宽 |
-| Git | `gitStatus.enabled`、`showDirty` 默认开启，可用 `showAheadBehind` 显示与上游分支的差距 |
-| 用量 | `display.showUsage`、`showContextBar`、`usageBarEnabled`、`showResetLabel` 默认开启。`usageValue: "remaining"` 显示剩余百分比，条形仍表示已用量 |
-| 阈值 | `display.contextWarningThreshold` 为 70，`contextCriticalThreshold` 为 85，`sevenDayThreshold` 为 80 |
-| 可选信息 | 在 `display` 中打开 `showTools`、`showAgents`、`showTasks`、`showSessionName`、`showEffortLevel`、`showCost`、`showSessionTokens` 或 `showAgyVersion` |
-| 配色 | `colors` 的键为 `model`、`project`、`git`、`gitBranch`、`label`、`context`、`usage`、`warning`、`usageWarning`、`critical`。值可用 `cyan`、`brightBlue` 等颜色名、0–255 的 ANSI 色号或 `#rrggbb`。设置 `NO_COLOR=1` 可关闭颜色 |
+| 布局 | `language` 支持 `en`、`zh-Hans`、`zh-Hant`。展开模式用 `elementOrder`、`display.mergeGroups` 和 `display.rightAlign` 排列元素，`projectLineOrder` 可在两种模式调整项目行 |
+| Git 与 jj | `gitStatus.showAheadBehind`、`showFileStats`、`showWorktree` 可选。用 `jjStatus.enabled` 打开 Jujutsu，需要本机的 `jj` |
+| 用量 | `display.contextValue` 支持 `percent`、`tokens`、`remaining`、`both`。配额支持已用／剩余口径、绝对或相对重置时间和 `usagePace` 消耗节奏。余额型额度按原始单位显示 |
+| 可选信息 | `display.showTools`、`showSkills`、`showMcp`、`showAgents`、`showTasks`、`showDuration`、`showAuth`、`showConfigCounts`、`showMemoryUsage`、`showCost`、`showSessionTokens` 等 |
+| 配色 | `colors` 接受颜色名、0–255 的 ANSI 色号和 `#rrggbb`。用 `barFilled`、`barEmpty` 改条形字符。设置 `NO_COLOR=1` 可关闭颜色 |
 
 ```sh
 npm run preview -- --compact --activity --width 100
+node src/cli.js schema
+node src/cli.js set '{"display":{"showTools":true,"showAgents":true}}'
+node src/cli.js undo
+node src/cli.js doctor
 npm test
 ```
 
-## Antigravity 数据来源
+用 `schema` 查看所有键与默认值，`config` 查看当前生效值。启用 `display.recordPreview` 后，`preview --last` 可用上一次的脱敏数据预览当前配置。`report` 只输出诊断字段和检测结果。
 
-- 模型、上下文、配额和子代理直接使用 `agy` 传给状态栏的数据。Gemini 和第三方模型使用各自的配额桶。周额度通常到 80% 才出现；只有周额度时会直接显示。缺少百分比的额度不会生成进度条。
-- 工具活动默认关闭。开启后读取当前会话 transcript 的末尾，用最近的工具结果统计次数，只在状态栏显示工具名称和适用的文件名。子代理显示以 `agy` 提供的状态为准。
-- `agy` 的 `task_count` 是后台任务数。Claude HUD 的待办进度、Claude 订阅窗口和 Claude 专属指标没有对应的 `agy` 数据来源。
+## 数据来源
+
+模型、上下文、配额和子代理直接来自 `agy`。Gemini 与第三方模型按各自的配额桶显示。工具统计默认关闭，启用后读取当前会话日志。配置计数来自常见的工作区和个人目录，费用汇总仅累计 HUD 开启跟踪后观察到的估算成本。
+
+需要追加目录、精确到工具步骤的活动和单次调用吞吐量时，用 `node src/cli.js hooks` 生成可选的 `agy-hub` hook 配置，将该条目合并至工作区 `.agents/hooks.json`。已有 hooks 可同时使用。AGY Hub 保存工作区列表、工具名及适用的文件名、调用计时，不存请求文本或命令参数。
+
+统计、hook 元数据和预览保存在 `~/.gemini/antigravity-cli/agy-hub-data/`，也可用 `AGY_HUB_DATA_DIR` 指定位置。只在相应功能启用时写入。可用 `AGY_HUB_DISABLE=1 agy` 本次停用 HUD。
+
+自定义命令输出可放在首行。先设置 `AGY_HUB_ALLOW_EXTRA_CMD=1`，再在 statusLine 命令末尾添加 `--extra-cmd '你的本地命令'`。HUD 只取第一行。
+
+与 Claude HUD 的功能对应关系、数据缺口和验收记录见 [功能对照](docs/parity.md)。
 
 布局和配色来自 [Claude HUD](https://github.com/jarrodwatts/claude-hud) v0.15.4（MIT），`agy` 配额结构参考了 [antigravity-cli-statusline](https://github.com/weby-homelab/antigravity-cli-statusline) 和 [Antigravity 官方文档](https://antigravity.google/docs/cli/statusline/)。

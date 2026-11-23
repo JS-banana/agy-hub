@@ -71,7 +71,7 @@ test('respects explicit context zero and never uses cumulative input as the cont
   assert.equal(normalizeState({ context_window: { context_window_size: 1000, total_input_tokens: 9000 } }).context, null);
   const current_usage = { input_tokens: 450, cache_read_input_tokens: 30, cache_creation_input_tokens: 20 };
   const state = normalizeState({ context_window: { context_window_size: 1000, current_usage } });
-  assert.deepEqual(state.context, { used: 50, input: 450, cache: 50 });
+  assert.deepEqual(state.context, { used: 50, input: 450, cache: 50, cacheRead: 30, size: 1000, tokens: 500 });
 });
 
 test('truncates by terminal cells and keeps untrusted labels out of ANSI controls', () => {
