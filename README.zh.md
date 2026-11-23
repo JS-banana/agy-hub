@@ -2,117 +2,136 @@
 
 [English](README.md)
 
-AGY Hub 是 Antigravity CLI（`agy`）的可配置状态栏。默认显示当前模型、项目、Git 分支、上下文占用和模型配额。窄屏时自动缩短进度条、拆分行。
+[![CI](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml)
+[![Node.js >= 22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![AGY Hub 在 Antigravity CLI 中显示模型、会话费用、Git 分支、上下文占用和配额](docs/assets/agy-hub-terminal-preview.png)
+AGY Hub 是为 Antigravity CLI（`agy`）打造的可配置终端状态栏。它能在一屏之内直观呈现当前模型、上下文占用、配额与重置倒计时、会话金额、Git/Jujutsu 状态以及实时工具与子代理调用，并在窄屏终端下自动调整布局。
 
-## 安装
+![AGY Hub 在 Antigravity CLI 中显示模型、估算会话费用、Git 分支、运行模式、上下文占用以及 5 小时和周配额](docs/assets/agy-hub-terminal-preview.png)
 
-需要 macOS 或 Linux、Node.js 22 或更新版本，以及支持自定义状态栏的 `agy`。AGY Hub 直接用 Node.js 运行本地副本。
+## 核心功能
 
-### 交给 Agent 安装
+- **上下文与配额**：实时进度条、阈值变色提醒、5 小时与周配额及重置倒计时。
+- **费用与 Token**：展示会话金额（缺省时按标准 API 费率本地估算 `≈$x.xx`），可选日/周费用与缓存命中率。
+- **工具与子代理**：追踪运行中与已完成的工具、Skills、MCP 及子代理状态。
+- **模型与版本控制**：显示当前模型、运行模式、Git 分支与变更状态，可选支持 Jujutsu（`jj`）。
+- **轻量可回退**：窄屏自适应、支持中英文、Node.js 22+ 零依赖，自动备份原配置且支持一键 `undo` / 卸载。
 
-把下面这段话发给你的编程 Agent。
+## 布局预览
+
+内置三种布局预设以适配不同终端宽度（以下为 `node src/cli.js preview --preset <name> --plain` 实际输出）：
+
+**`default`** —— 默认两行，均衡展示模型、项目、Git、上下文和配额：
 
 ```text
-帮我把 https://github.com/JS-banana/agy-hub 接入 Antigravity CLI。已有源码就复用，否则克隆到 ~/.local/share/agy-hub。跳过 npm 安装，直接用本地 node src/cli.js 预览并启用 HUD，同时注册 /agy-hub。替换其他状态栏前先问我。
+[Gemini 3.8 Flash] │ my-project git:(main*)
+Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
-### 先安装 Skill
+**`compact`** —— 紧凑单行，空间充足时将项目与主要指标合并到一行：
 
-将 [SKILL.md 原文](https://raw.githubusercontent.com/JS-banana/agy-hub/main/skills/agy-hub/SKILL.md) 保存到 `~/.gemini/antigravity-cli/skills/agy-hub/SKILL.md`，也可以让 Agent 代劳。该路径已有文件时请保留原文件。如果已有源码副本，也可在其根目录运行 `node src/cli.js skill install`，让 Skill 记录对应的本地入口。
+```text
+[Gemini 3.8 Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
+```
 
-打开一个新 `agy` 会话，或在已有交互会话运行 `/skills reload`，然后输入下面这句话。需要时 Skill 会引导 Agent 获取本地副本。
+**`activity`** —— 扩展活动视图，在分隔线下实时展示工具调用与子代理状态：
+
+```text
+[Gemini 3.8 Flash] │ my-project git:(main*)
+Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
+────────────────────────────────────────────────────────────────
+◐ Edit: auth.ts | ✓ Read ×3 | ✓ Grep ×2
+◐ explore [Gemini Flash]: Finding auth code
+```
+
+在较窄的终端窗口中，进度条会自动缩短并智能折行（可通过 `node src/cli.js preview --width 60 --plain` 预览效果）。
+
+## 快速开始
+
+环境要求：**macOS 或 Linux**、**Node.js 22+**，以及支持自定义状态栏的 **`agy`**。由于 `agy` 会按绝对路径调用状态栏脚本，请将代码保存在固定目录中。
+
+### 方式一：让编程 Agent 帮你接入（推荐）
+
+复制以下提示词发给你的 Agent：
+
+```text
+帮我按 https://github.com/JS-banana/agy-hub 中 skills/agy-hub/SKILL.md 的指引接入 Antigravity CLI 状态栏，先预览再启用，并注册 /agy-hub。
+```
+
+如果你已经加载过 `/agy-hub` 技能，直接输入：
 
 ```text
 /agy-hub 帮我接入 AGY Hub，先给我看预览
 ```
 
-### 手动运行向导
-
-把代码克隆到一个固定目录。已有源码副本时，进入其根目录运行最后一条命令即可。
+### 方式二：终端交互向导手动安装
 
 ```sh
 mkdir -p "$HOME/.local/share"
 git clone https://github.com/JS-banana/agy-hub.git "$HOME/.local/share/agy-hub"
 cd "$HOME/.local/share/agy-hub"
-node src/cli.js setup
+node src/cli.js setup --prompt-language zh-Hans
 ```
 
-向导会让你选布局，以及是否显示工具、子代理和 Git 文件统计。确认前会展示示例，并在替换现有自定义状态栏时提示备份。确认后打开新的 `agy` 会话即可使用。
+向导会先预览效果、由你选择要开启的信息；若检测到已有状态栏配置，会在确认后自动备份再替换。设置完成后，新开一个 `agy` 会话即可生效。
 
-向导提示默认为英文。可指定 `node src/cli.js setup --prompt-language zh-Hans` 或 `--prompt-language zh-Hant` 切换本次提示语言。HUD 的标签语言由配置中的 `language` 决定。
+**单次会话免安装试用：**
 
-只试用一次时，可以在本地副本内运行 `agy --settings "$(node src/cli.js settings)"`。如果 [GitHub Releases](https://github.com/JS-banana/agy-hub/releases) 有可用版本，可以将 `.tgz` 解包到固定位置，再从解出的软件包目录运行 `node src/cli.js setup`。安装后请保留该目录，`agy` 会通过绝对路径调用它。
+```sh
+agy --settings "$(node src/cli.js settings)"
+```
 
-## 配置状态栏
+## 常用定制
 
-以下 `node src/cli.js` 命令都在本地副本根目录运行。用 `node src/cli.js setup --configure-only` 重新打开向导。也可以用 `node src/cli.js preview --preset activity` 看示例，追加 `--width 60` 模拟窄屏，或追加 `--plain` 查看无色输出。
-
-| 预设 | 显示内容 |
-| --- | --- |
-| `default` | 默认两行，显示模型、项目、Git、上下文和配额 |
-| `compact` | 优先把项目和用量排在同一行 |
-| `activity` | 在展开布局中加上工具和子代理活动 |
-
-### 让 Agent 配置
-
-加载 Skill 后，可以在其他工作区直接提出调整请求。
+注册 `/agy-hub` 后，在任何工作区都可以直接用自然语言调整状态栏：
 
 ```text
-/agy-hub 改成紧凑布局，显示工具和子代理
+/agy-hub 帮我开启费用估算、常驻周配额和工具活动，界面改成简体中文
 ```
 
-Agent 或脚本可用 `node src/cli.js setup --dry-run --json` 读取预览和计划，通过 `--preset` 或 `--set '<JSON>'` 传入候选设置。同一组参数改用 `--yes` 即可保存。`--configure-only` 只改显示，替换其他状态栏时需要 `--replace`。
-
-`preview --preset` 从默认配置预览，`setup --preset` 把预设包含的选项合并到当前配置。
-通过 `setup` 开启工具、子代理、技能或 MCP 活动时，展开布局会补上缺失的对应行。传入 `elementOrder` 可以指定完整的行顺序。
-
-### 进阶设置
-
-配置默认保存在 `~/.gemini/antigravity-cli/agy-hub.json`。用 `node src/cli.js config path` 查看实际位置，用 `AGY_HUB_CONFIG` 指定其他文件。手动编辑时只需填写要覆盖的设置。
+也可以在终端里重新打开配置向导（`node src/cli.js setup --configure-only --prompt-language zh-Hans`），或通过 CLI 直接修改与撤回：
 
 ```sh
 node src/cli.js config show
-node src/cli.js config set '{"language":"zh-Hans","display":{"showAgents":true}}'
-node src/cli.js config check
+node src/cli.js config set '{"language":"zh-Hans","display":{"showCost":true,"sevenDayThreshold":0,"showTools":true}}'
 node src/cli.js config undo
 ```
 
-| 配置项 | 能调整什么 |
-| --- | --- |
-| `language` | 英语 `en`、简体中文 `zh-Hans`、繁体中文 `zh-Hant` |
-| `elementOrder`、`display.mergeGroups`、`display.rightAlign` | 展开布局的行顺序、合并与对齐 |
-| `projectLineOrder`、`pathLevels` | 项目行的字段顺序、目录显示层级 |
-| `gitStatus`、`jjStatus` | 分支、领先和落后、文件变更、worktree，以及可选的 Jujutsu 状态 |
-| `display` | 上下文与配额的格式和阈值、工具和子代理、会话 token、费用、内存等 |
-| `colors` | 颜色名、0–255 的 ANSI 色号、`#rrggbb`，以及进度条字符。设置 `NO_COLOR=1` 可关闭颜色 |
+最常调整的配置项：
 
-启用 `display.showCost` 可显示会话费用。`agy` 缺少金额时，支持的模型会显示按标准 API 费率计算的参考值，例如 `Cost ≈$0.06`。开启 `display.showAgentModeOnly` 可单独显示 `Auto mode` 或 `Plan mode`。希望周配额有数据时一直显示，可将 `display.sevenDayThreshold` 设为 `0`。
+| 配置项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `lineLayout` | `"expanded"` | 布局模式：`"expanded"`（多行展开）或 `"compact"`（紧凑单行） |
+| `language` | `"en"` | 标签语言：`"en"`、`"zh-Hans"`（简体中文）或 `"zh-Hant"`（繁体中文） |
+| `display.showCost` | `false` | 显示会话费用；`agy` 缺省时自动按标准 API 费率估算并标注 `≈` |
+| `display.showTools` / `showAgents` | `false` | 实时显示工具调用计数与子代理状态 |
+| `display.sevenDayThreshold` | `80` | 5 小时配额达到多少百分比时显示周配额；设为 `0` 则有数据就常驻显示 |
+| `gitStatus.showFileStats` | `false` | 在分支旁显示变更文件数或增删行数 |
 
-用 `node src/cli.js config schema` 查看全部默认值。也可为编辑器生成带字段帮助的 JSON Schema：
+完整配置项、配色、JSON Schema 与环境变量见 [完整配置参考](docs/configuration.md)；数据来源、API 费率与可选 Hooks 见 [Antigravity 集成指南](docs/integration.md)。
 
-```sh
-node src/cli.js init
-node src/cli.js config schema --json-schema > "$(dirname "$(node src/cli.js config path)")/agy-hub.schema.json"
-node src/cli.js config set '{"$schema":"./agy-hub.schema.json"}'
-```
+## 排查、升级与卸载
 
-模型、上下文、配额和子代理由 `agy` 提供。工具活动可读本地会话日志，必要时可加装 hooks 补充精细记录。数据来源、兼容限制和本地记录的位置见 [Antigravity 集成](docs/integration.md)。
+- **健康检查与回放**：在项目目录运行 `node src/cli.js doctor`（或发送 `/agy-hub 帮我检查状态栏`）检查绑定与配置；`node src/cli.js report` 可生成脱敏诊断报告；启用 `display.recordPreview` 后可用 `node src/cli.js preview --last` 回放上一帧。
+- **升级版本**：
+  ```sh
+  git pull --ff-only
+  node src/cli.js install
+  node src/cli.js skill install # 若使用了 /agy-hub
+  ```
+- **临时停用**：运行 `AGY_HUB_DISABLE=1 agy` 启动单次会话。
+- **彻底卸载**：移除技能并恢复原有的状态栏配置：
+  ```sh
+  node src/cli.js skill uninstall # 若安装了 Skill
+  node src/cli.js uninstall
+  ```
 
-## 排查、升级和卸载
-
-- 用 `node src/cli.js doctor` 检查配置、状态栏绑定和命令路径。需要诊断摘要时用 `node src/cli.js report`。启用 `display.recordPreview` 后可用 `node src/cli.js preview --last` 回看上一帧。
-- 源码升级用 `git pull --ff-only`。如果用的是发布包，就把新版本解包到固定目录，然后在新副本运行 `node src/cli.js install` 更新状态栏绑定。正在用 Skill 的话，再运行 `node src/cli.js skill install`。Node 可执行文件或本地副本换了位置，也要重新运行对应命令。手动修改过的 Skill 会保留。
-- 用 `AGY_HUB_DISABLE=1 agy` 暂时停用。永久卸载时，若装了 Skill，先用 `node src/cli.js skill uninstall` 移除它，再用 `node src/cli.js uninstall` 恢复原状态栏。完成后可以移除本地副本。
-
-## 开发
+## 开发与许可
 
 ```sh
 npm ci
 npm run check
 ```
 
-检查覆盖类型、行为、渲染层依赖边界，以及使用本地解包的发布文件接入和恢复状态栏的流程。[贡献与发布指南](CONTRIBUTING.md) · [工程架构](docs/architecture.md)
-
-AGY Hub 采用 MIT 许可证。衍生代码的版权声明见 [LICENSE](LICENSE)。
+[贡献指南](CONTRIBUTING.md) · [工程架构](docs/architecture.md) · [MIT 许可证](LICENSE)

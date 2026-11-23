@@ -9,6 +9,15 @@
   "bugs": {
     "url": "https://github.com/JS-banana/agy-hub/issues"
   },
+  "homepage": "https://github.com/JS-banana/agy-hub#readme",
+  "keywords": [
+    "antigravity",
+    "agy",
+    "statusline",
+    "hud",
+    "cli",
+    "terminal"
+  ],
   "type": "module",
   "bin": {
     "agy-hub": "src/cli.js"
@@ -29,6 +38,7 @@
     "README.zh.md",
     "CONTRIBUTING.md",
     "docs/assets/agy-hub-terminal-preview.png",
+    "docs/configuration.md",
     "docs/integration.md",
     "docs/architecture.md",
     "skills/agy-hub/SKILL.md"
