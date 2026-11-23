@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline';
 /**
  * @typedef {{
  *   config: HudConfig,
+ *   promptLanguage?: HudConfig['language'],
  *   configureOnly?: boolean,
  *   customStatusline?: boolean,
  *   preview: (patch: SetupPatch) => string | Promise<string>,
@@ -89,9 +90,10 @@ function featureNumbers(value) {
  * @returns {Promise<SetupPatch | null>}
  */
 export async function setupWizard({
-  config, configureOnly = false, customStatusline = false, preview, input = process.stdin, output = process.stdout,
+  config, promptLanguage = 'en', configureOnly = false, customStatusline = false,
+  preview, input = process.stdin, output = process.stdout,
 }) {
-  const text = copy[config.language] ?? copy.en;
+  const text = copy[promptLanguage];
   const terminal = 'isTTY' in input && Boolean(input.isTTY) && 'isTTY' in output && Boolean(output.isTTY);
   const reader = createInterface({ input, output, terminal, crlfDelay: Infinity, historySize: 0 });
   const lines = reader[Symbol.asyncIterator]();

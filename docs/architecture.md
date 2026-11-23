@@ -1,34 +1,36 @@
-# 工程架构
+# Architecture
 
-AGY Hub 是 Antigravity CLI 的 statusline 命令。AGY 每次调用提供一个 JSON 对象，HUD 输出一帧。npm 包直接运行 ESM JavaScript。开发时通过 JSDoc 描述模块接口，带 `@ts-check` 的模块启用 TypeScript 严格检查。
+AGY Hub is a status line command for the Antigravity CLI. Each invocation receives a JSON object and returns one rendered frame. The npm package runs directly as ESM JavaScript. JSDoc describes module interfaces, and modules with `@ts-check` use TypeScript's strict checks.
 
 ```mermaid
 flowchart LR
-    AGY["agy JSON / stdin"] --> Input["限长读取"]
-    Input --> State["标准化状态"]
-    Settings["本地配置"] --> Config["配置规则"]
-    State --> Runtime["运行时采集"]
+    AGY["agy JSON / stdin"] --> Input["Bounded input"]
+    Input --> State["Normalized state"]
+    Settings["Local settings"] --> Config["Configuration schema"]
+    State --> Runtime["Runtime data collection"]
     Config --> Runtime
-    Runtime --> Facts["Git / 日志 / 可选 hooks 数据"]
-    Facts --> Render["纯渲染"]
-    Render --> Out["ANSI 文本 / stdout"]
+    Runtime --> Facts["Git / logs / optional hook data"]
+    Facts --> Render["Pure renderer"]
+    Render --> Out["ANSI text / stdout"]
 ```
 
-## 配置
+## Configuration
 
-[`src/config-schema.js`](../src/config-schema.js) 定义配置字段、默认值和约束。同一套规则负责运行时归一化、`config check` 诊断与编辑器 JSON Schema。运行时用默认值补齐无效或缺失的设置。`init` 写入稀疏预设，之后新增的默认值可自动生效。
+[`src/config-schema.js`](../src/config-schema.js) defines settings, defaults, and constraints. The schema also powers runtime normalization, `config check`, and editor JSON Schema generation. Runtime configuration uses defaults for missing or invalid values. `init` writes a sparse preset so future defaults can take effect without migrating the file.
 
-[`src/preferences.js`](../src/preferences.js) 负责 HUD 配置的检查、预览、写入和一步撤销。[`src/setup.js`](../src/setup.js) 规划、备份和恢复 AGY 的 `statusLine` 条目。[`src/setup-command.js`](../src/setup-command.js) 协调两个操作，终端向导和本地 Skill 共用这条命令入口与配置校验。启用绑定时先锁定 AGY 设置并检查拟写文件，再保存 HUD 配置。绑定提交失败时，用写入前的内容回滚本次配置改动，保留外部编辑。
+[`src/preferences.js`](../src/preferences.js) validates, previews, saves, and undoes HUD configuration changes. [`src/setup.js`](../src/setup.js) plans, backs up, and restores the Antigravity `statusLine` binding. [`src/setup-command.js`](../src/setup-command.js) coordinates both operations. The wizard and local skill use the same command and configuration validation.
 
-## 模块边界
+Setup locks the Antigravity settings and checks the planned writes before saving the HUD configuration. If the binding update fails, setup restores the previous HUD configuration and preserves concurrent external edits.
 
-- [`src/cli.js`](../src/cli.js) 是稳定的命令入口。有参数时处理预览、配置、诊断、安装等命令；状态栏回调由 [`src/runtime/statusline.js`](../src/runtime/statusline.js) 采集数据。
-- [`src/state.js`](../src/state.js) 将 AGY 的不可信 JSON 变成 HUD 状态。缺失字段保持缺失。文件和标准输入有体积限制。
-- [`src/render.js`](../src/render.js) 组装画面，[布局](../src/render/layout.js) 只做行合并和列宽计算，[项目区](../src/render/project.js) 负责项目路径与版本控制显示。渲染代码和标准化代码可用固定输入直接测试。
-- 运行时调用 Git、日志、hooks、费用和预览模块。[`src/runtime/json-file.js`](../src/runtime/json-file.js) 提供有界的本地 JSON 读取与原子文件替换。[`src/cost.js`](../src/cost.js) 单独维护费用账本和归档。渲染层接收整理后的数据，依赖测试检查其可达模块是否引入 I/O 依赖。
+## Module boundaries
 
-## 验证与调试
+- [`src/cli.js`](../src/cli.js) handles the command interface. [`src/runtime/statusline.js`](../src/runtime/statusline.js) collects data for each status line invocation.
+- [`src/state.js`](../src/state.js) normalizes untrusted Antigravity JSON and preserves missing fields. File and stdin reads are size-limited.
+- [`src/render.js`](../src/render.js) assembles frames. The [layout module](../src/render/layout.js) handles width and row grouping, and the [project module](../src/render/project.js) renders project and version control information. [`src/pricing.js`](../src/pricing.js) computes the session cost fallback locally.
+- The runtime reads Git, logs, hooks, costs, and previews. [`src/runtime/json-file.js`](../src/runtime/json-file.js) provides bounded JSON reads and atomic writes. [`src/cost.js`](../src/cost.js) maintains the cost ledger and archive. A dependency test checks that modules reachable from the renderer import no I/O dependencies.
 
-运行 `npm run check` 执行类型检查、行为测试和打包验收。打包验收在临时 HOME 和两个 npm 前缀中安装发行包，验证真实 shell 命令能从 stdin 渲染、旧入口失效后能重新绑定，以及卸载能还原原状态栏。GitHub CI 配置在 macOS 和 Linux 上跑 Node.js 22 与 24，其中 macOS Node.js 24 任务安装真实的 `jj`。
+## Verification
 
-新增配置时同时确认默认值、写入校验和实际渲染。调整终端输出时检查默认布局、窄屏和无色输出。AGY 输入字段与 hooks 的实际来源和验证范围见 [Antigravity 集成](integration.md)。
+Run `npm run check` for type checks, behavior tests, and package verification. The package check installs the archive using a temporary home directory and two npm prefixes. It verifies that an installed shell command renders from stdin, that a stale binding can be refreshed, and that uninstall restores the original status line. GitHub CI runs the checks on macOS and Linux with Node.js 22 and 24. The macOS Node.js 24 job installs `jj` and runs the Jujutsu tests.
+
+For a new option, check the default, validation, and rendered output. For rendering changes, test normal width, narrow width, and plain output. The integration reference covers Antigravity fields and hooks. [Antigravity integration](integration.md)

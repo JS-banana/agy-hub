@@ -10,11 +10,15 @@ export async function runSetup(args) {
   const { values } = parseArgs({ args, options: {
     yes: { type: 'boolean' }, preset: { type: 'string' }, set: { type: 'string' },
     'configure-only': { type: 'boolean' }, 'dry-run': { type: 'boolean' }, replace: { type: 'boolean' },
-    json: { type: 'boolean' }, plain: { type: 'boolean' },
+    json: { type: 'boolean' }, plain: { type: 'boolean' }, 'prompt-language': { type: 'string' },
   } });
   const configureOnly = values['configure-only'] === true;
   const dryRun = values['dry-run'] === true;
   const interactive = !dryRun && !values.yes;
+  const promptLanguage = values['prompt-language'] ?? 'en';
+  if (promptLanguage !== 'en' && promptLanguage !== 'zh-Hans' && promptLanguage !== 'zh-Hant') {
+    throw new Error('--prompt-language must be en, zh-Hans, or zh-Hant.');
+  }
   if (interactive && (!process.stdin.isTTY || !process.stdout.isTTY || values.json)) {
     throw new Error('Run setup in a terminal, or use --dry-run to preview and --yes to apply.');
   }
@@ -39,7 +43,7 @@ export async function runSetup(args) {
   if (interactive) {
     const { setupWizard } = await import('./setup-wizard.js');
     const changes = await setupWizard({
-      config: candidate.config, configureOnly, customStatusline,
+      config: candidate.config, promptLanguage, configureOnly, customStatusline,
       preview: (draft) => preview(planPreferences(mergeConfig(patch, draft)).config),
     });
     if (changes === null) return '';

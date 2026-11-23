@@ -49,6 +49,22 @@ test('Agent setup uses the same validation and leaves unrelated options intact',
   assert.deepEqual(json(config), original);
 });
 
+test('validates setup prompt language separately from HUD labels', (t) => {
+  const { run, config } = workspace(t);
+  const original = { language: 'zh-Hans' };
+  writeFileSync(config, JSON.stringify(original));
+
+  const preview = run('setup', '--configure-only', '--dry-run', '--json', '--prompt-language', 'zh-Hant');
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(JSON.parse(preview.stdout).preview, /上下文.*重置剩余/);
+  assert.deepEqual(json(config), original);
+
+  const invalid = run('setup', '--configure-only', '--yes', '--prompt-language', 'zh');
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /--prompt-language must be en, zh-Hans, or zh-Hant/);
+  assert.deepEqual(json(config), original);
+});
+
 test('Agent setup requires separate approval for an existing statusline', posix, (t) => {
   const { run, config, settings } = workspace(t);
   const original = { statusLine: { type: 'command', command: 'printf other-hud' }, theme: 'dark' };

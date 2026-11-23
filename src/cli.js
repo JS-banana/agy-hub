@@ -13,8 +13,9 @@ const help = `Usage: agy-hub [command]
 
 With no command, render Antigravity CLI statusline JSON from stdin.
 
-  setup [--configure-only] [--preset <name>]
+  setup [--configure-only] [--preset <name>] [--prompt-language <language>]
              Pick a layout, preview it and apply it in the terminal.
+             Prompt languages: en (default), zh-Hans, zh-Hant.
              Use --dry-run or --yes for agents, with --set '<JSON patch>'.
   preview [--preset <name>] [--set '<JSON patch>'] [--last] [--width <columns>] [--plain]
              Render a sample or replay an opt-in recorded frame.
