@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-24
+
 ### Added
 
 - Configurable status line for the Antigravity CLI with `default`, `compact`, and `activity` layouts, automatic adaptation to narrow terminals, and English, Simplified Chinese, and Traditional Chinese labels
@@ -17,4 +19,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guided `setup` wizard and the `init`, `config`, `install`, `uninstall`, `doctor`, `report`, `preview`, and `hooks` commands, with automatic backup and restore of an existing status line
 - JSON Schema for editor validation and an installable `agy-hub` Agent skill for plain-language configuration
 
-[Unreleased]: https://github.com/JS-banana/agy-hub/commits/main
+[Unreleased]: https://github.com/JS-banana/agy-hub/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/JS-banana/agy-hub/releases/tag/v0.4.0
