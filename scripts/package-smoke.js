@@ -71,7 +71,7 @@ try {
   const packed = Array.isArray(packedResult) ? packedResult[0] : packedResult[manifest.name];
   assert.ok(packed, `npm pack must report the ${manifest.name} archive`);
   const packedPaths = new Set(packed.files.map(({ path }) => path));
-  for (const path of ['README.md', 'LICENSE', 'docs/parity.md', 'docs/architecture.md', 'src/cli.js']) {
+  for (const path of ['README.md', 'LICENSE', 'docs/parity.md', 'docs/architecture.md', 'src/cli.js', 'skills/agy-hub/SKILL.md']) {
     assert.ok(packedPaths.has(path), `The release archive must contain ${path}`);
   }
   const archive = join(archiveDir, packed.filename);
@@ -91,6 +91,14 @@ try {
   const initializedConfig = readFileSync(configPath, 'utf8');
   run(first, ['init', '--preset', 'compact'], { allowFailure: true });
   assert.equal(readFileSync(configPath, 'utf8'), initializedConfig, 'Init must preserve an existing configuration');
+  const plan = JSON.parse(run(first, ['setup', '--dry-run', '--configure-only', '--preset', 'compact', '--json']).stdout);
+  assert.match(plan.preview, /45% \| my-project/);
+  assert.equal(readFileSync(configPath, 'utf8'), initializedConfig);
+  const skill = run(first, ['skill', 'path']).stdout.trim();
+  run(first, ['skill', 'install']);
+  assert.match(readFileSync(skill, 'utf8'), /name: agy-hub/);
+  run(first, ['skill', 'uninstall']);
+  assert.ok(!existsSync(skill));
 
   const previousSettings = {
     statusLine: { type: 'command', command: 'printf prior-hud', padding: 2, enabled: false },

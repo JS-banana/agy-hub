@@ -20,6 +20,8 @@ flowchart LR
 
 设置修改采用原子替换并保留一步撤销记录。安装只替换 AGY 的 `statusLine` 条目，备份原配置值；卸载按当前命令归属决定是否还原。
 
+终端向导收集改动并展示示例，确认前没有写入。Agent 可使用同一个 `setup` 的 `--dry-run` 和 `--yes` 流程。预览与保存复用同一配置校验。可选的 Antigravity 本地 Skill 只描述这些 CLI 命令的使用流程。
+
 ## 模块边界
 
 - [`src/cli.js`](../src/cli.js) 是稳定的命令入口。有参数时处理预览、配置、诊断、安装等命令；状态栏回调由 [`src/runtime/statusline.js`](../src/runtime/statusline.js) 采集数据。

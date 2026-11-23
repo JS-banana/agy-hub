@@ -15,11 +15,12 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 
 ```sh
 npm install -g "./$(npm pack --silent)"
-agy-hub preview
-agy --settings "$(agy-hub settings)"
+agy-hub setup
 ```
 
-最后一行只给这次会话启用 HUD。确认效果后，运行 `agy-hub install` 再重启 `agy` 即可全局启用。安装会备份之前的 statusline。升级时重新安装新版 npm 包，再运行 `agy-hub install`。如果 Node 升级后入口失效，也用这个命令重新绑定；`agy-hub doctor` 会指出旧入口或 Node 是否不可用。
+`setup` 会让你选择展开或紧凑布局、决定是否显示工具活动、子代理和 Git 文件统计，并在确认前展示示例。确认后打开新的 `agy` 会话即可使用。已有其他状态栏时，向导会说明替换并备份原设置。已有 AGY Hub 时，用 `agy-hub setup --configure-only` 打开同一个向导调整显示。
+
+只想试用一次，可运行 `agy --settings "$(agy-hub settings)"`。升级时重新安装新版 npm 包，再运行 `agy-hub install`。如果 Node 升级后入口失效，`agy-hub doctor` 会指出旧入口或 Node 是否不可用。
 
 ```sh
 agy-hub uninstall
@@ -29,6 +30,18 @@ npm uninstall -g agy-hub
 先恢复原 statusline，再卸载 npm 命令。如果之后在 `agy` 选择了别的状态栏，恢复命令会保留新选择和备份。
 
 可以在源码目录直接用 `node src/cli.js` 代替 `agy-hub`。这个方式绑定的是源码所在路径。
+
+## 用一句话配置
+
+在 AGY Hub 源码目录里，可以告诉 Agent「帮我启用 AGY Hub，状态栏用紧凑布局，显示工具活动，先给我看预览」。已安装 CLI 时，也可以用 `agy-hub skill install` 把本地 `/agy-hub` 命令加入 Antigravity CLI，再在新会话输入：
+
+```text
+/agy-hub 改成紧凑布局，显示工具和子代理，其他设置保持不动
+```
+
+如果会话已经开着，可在交互终端运行 `/skills reload`。Agent 会查询配置、生成示例并通过 CLI 保存。工具可用时，Agent 也能把布局或显示项做成选项让你选择。用 `agy-hub skill uninstall` 移除本地 Skill。
+
+给 Agent 或脚本的入口是 `agy-hub setup --dry-run --json`。可搭配 `--preset` 或 `--set '<JSON>'` 提交候选。用同一组配置参数把 `--dry-run` 换成 `--yes` 才会应用，`--configure-only` 只改 HUD 显示。替换其他状态栏还需显式的 `--replace`。
 
 ## 自定义
 
@@ -105,6 +118,6 @@ npm run check
 
 ## English quick start
 
-From a local checkout, run `npm install -g "./$(npm pack --silent)"`, then `agy-hub preview --preset activity`. To try the HUD for a single session, run `agy --settings "$(agy-hub settings)"`. Use `agy-hub init --preset activity` to save the preset and `agy-hub install` to make it the default. Run `agy-hub --help` for configuration and diagnostics. Requires Node.js 22+ and Antigravity CLI on macOS or Linux.
+From a local checkout, run `npm install -g "./$(npm pack --silent)"`, then `agy-hub setup` for a guided preview and installation. Use `agy-hub setup --configure-only` to adjust an existing HUD. Run `agy-hub skill install` for the local `/agy-hub` command in Antigravity CLI. Requires Node.js 22+ and Antigravity CLI on macOS or Linux.
 
 布局和配色来自 [Claude HUD](https://github.com/jarrodwatts/claude-hud) v0.15.4（MIT），`agy` 配额结构参考了 [antigravity-cli-statusline](https://github.com/weby-homelab/antigravity-cli-statusline) 和 [Antigravity 官方文档](https://antigravity.google/docs/cli/statusline/)。

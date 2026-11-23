@@ -100,7 +100,7 @@ async function verifySettings(path, original) {
   }
 }
 
-export async function install({ settingsPath: file = settingsPath(), executable, script } = {}) {
+export async function install({ settingsPath: file = settingsPath(), executable, script, replaceCustom = true } = {}) {
   return withSettingsLock(file, true, async (path, backupPath) => {
     const statusLine = createStatusLine({ executable, script });
     const original = readJson(path);
@@ -116,6 +116,9 @@ export async function install({ settingsPath: file = settingsPath(), executable,
     }
 
     const ownsCurrent = backup?.commands.includes(currentCommand);
+    if (!replaceCustom && typeof currentCommand === 'string' && currentCommand && !ownsCurrent) {
+      throw new Error('A different statusline is configured. Confirm the replacement or run setup --configure-only to keep it.');
+    }
     const saved = ownsCurrent
       ? { ...backup, commands: [currentCommand, statusLine.command] }
       : { commands: [statusLine.command], createdSettings: !original, previous: settings.statusLine };

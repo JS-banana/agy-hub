@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, mkdirSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { configPath, readConfig } from './config.js';
+import { configPath, normalizeConfig, readConfig } from './config.js';
 import { ansiColors, configRules, DEFAULT_CONFIG, inspectConfig, jsonSchema } from './config-schema.js';
 import { writeObject } from './local-data.js';
 import { MAX_CONFIG_BYTES, readTextFile } from './runtime/text-file.js';
@@ -20,14 +20,14 @@ function targetPath(path) {
   return lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() ? realpathSync(path) : path;
 }
 
-function parseObject(text) {
+export function parseConfigPatch(text) {
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('Expected a valid JSON object.'); }
   if (!isRecord(value)) throw new Error('Expected a valid JSON object.');
   return value;
 }
 
-function mergeConfig(base, patch, defaults = DEFAULT_CONFIG) {
+export function mergeConfig(base, patch, defaults = DEFAULT_CONFIG) {
   const entries = Object.entries(patch).map(([key, value]) => {
     if (!Object.hasOwn(defaults, key) || !isRecord(defaults[key]) || !isRecord(value)) return [key, value];
     return [key, mergeConfig(isRecord(base[key]) ? base[key] : {}, value, defaults[key])];
@@ -41,7 +41,7 @@ function check(path) {
     return { valid: false, unknown: [], invalid: [], unsafe: [], error: 'unreadable' };
   }
   try {
-    const raw = text === null ? {} : parseObject(text);
+    const raw = text === null ? {} : parseConfigPatch(text);
     return { ...inspectConfig(raw), exists: text !== null };
   } catch {
     return { valid: false, unknown: [], invalid: [], unsafe: [], exists: true, error: 'invalid-json' };
@@ -74,27 +74,42 @@ function restoreText(path, text) {
   }
 }
 
-function set(path, patch, createOnly = false) {
+function candidateConfig(base, patch) {
   const restricted = manualOnly.filter((key) => {
     const [section, field] = key.split('.');
     return isRecord(patch[section]) && Object.hasOwn(patch[section], field);
   });
   if (restricted.length) throw new Error(`Edit these file paths directly in the configuration file: ${restricted.join(', ')}.`);
+  const updated = mergeConfig(base, patch);
+  const { valid, unknown, invalid, unsafe } = inspectConfig(updated);
+  if (!valid) {
+    const problems = [[unknown, 'Unknown keys'], [invalid, 'Invalid values'], [unsafe, 'Unsafe keys']]
+      .filter(([keys]) => keys.length).map(([keys, label]) => `${label}: ${keys.map((key) => JSON.stringify(key)).join(', ')}`);
+    throw new Error(`${problems.join('. ')}.`);
+  }
+  const next = `${json(updated)}\n`;
+  if (Buffer.byteLength(next) > MAX_CONFIG_BYTES) throw new Error(`Configuration file exceeds ${MAX_CONFIG_BYTES} bytes.`);
+  return { updated, next };
+}
 
+export function previewPreferences(patch, { path = configPath(), base } = {}) {
+  const current = base ?? currentConfig(path);
+  const { updated } = candidateConfig(current, patch);
+  return { config: normalizeConfig(updated), changed: !isDeepStrictEqual(updated, current) };
+}
+
+function currentConfig(path) {
+  const before = readText(targetPath(path));
+  return before === null ? {} : parseConfigPatch(before);
+}
+
+function set(path, patch, createOnly = false) {
   return withLock(path, true, (file, undoFile) => {
     const before = readText(file);
     if (createOnly && before !== null) return { created: false, path };
-    const base = before === null ? {} : parseObject(before);
-    const updated = mergeConfig(base, patch);
-    const { valid, unknown, invalid, unsafe } = inspectConfig(updated);
-    if (!valid) {
-      const problems = [[unknown, 'Unknown keys'], [invalid, 'Invalid values'], [unsafe, 'Unsafe keys']]
-        .filter(([keys]) => keys.length).map(([keys, label]) => `${label}: ${keys.map((key) => JSON.stringify(key)).join(', ')}`);
-      throw new Error(`${problems.join('. ')}.`);
-    }
+    const base = before === null ? {} : parseConfigPatch(before);
+    const { updated, next } = candidateConfig(base, patch);
     if (!createOnly && isDeepStrictEqual(updated, base)) return { updated: false };
-    const next = `${json(updated)}\n`;
-    if (Buffer.byteLength(next) > MAX_CONFIG_BYTES) throw new Error(`Configuration file exceeds ${MAX_CONFIG_BYTES} bytes.`);
 
     const oldUndo = readUndo(undoFile);
     writeObject(undoFile, { before, after: hash(next) });
@@ -113,7 +128,7 @@ function undo(path) {
   return withLock(path, false, (file, undoFile) => {
     const saved = readUndo(undoFile);
     if (saved === null) return { undone: false };
-    const { before, after } = parseObject(saved);
+    const { before, after } = parseConfigPatch(saved);
     if ((before !== null && typeof before !== 'string') || typeof after !== 'string' || !/^[\da-f]{64}$/.test(after)) {
       throw new Error('Invalid configuration undo record.');
     }
@@ -135,7 +150,7 @@ export function preferences(action, argument, { path = configPath() } = {}) {
     case 'check': return json(check(path));
     case 'path': return path;
     case 'init': return json(set(path, presetConfig(argument), true));
-    case 'set': return json(set(path, parseObject(argument)));
+    case 'set': return json(set(path, parseConfigPatch(argument)));
     case 'undo': return json(undo(path));
     default: throw new Error('Expected config show, schema, check, set or undo.');
   }

@@ -2,18 +2,21 @@
 import { parseArgs } from 'node:util';
 import { normalizeConfig, readConfig } from './config.js';
 import { hookDefinitions, recordHook } from './hooks.js';
+import { samplePreview } from './preview.js';
 import { render } from './render.js';
 import { recordedPreview } from './replay.js';
 import { presetConfig, presetNames } from './presets.js';
 import { readInput } from './runtime/input.js';
 import { install, printSettings, uninstall } from './setup.js';
-import { normalizeState } from './state.js';
 
 const help = `Usage: agy-hub [command]
 
 With no command, render Antigravity CLI statusline JSON from stdin.
 
-  preview [--preset <name>] [--last] [--width <columns>] [--plain]
+  setup [--configure-only] [--preset <name>]
+             Pick a layout, preview it and apply it in the terminal.
+             Use --dry-run or --yes for agents, with --set '<JSON patch>'.
+  preview [--preset <name>] [--set '<JSON patch>'] [--last] [--width <columns>] [--plain]
              Render a sample or replay an opt-in recorded frame.
   init [--preset <name>]
              Create a configuration without overwriting an existing file.
@@ -24,6 +27,8 @@ With no command, render Antigravity CLI statusline JSON from stdin.
   doctor     Check configuration, integration and any recorded frame.
   report     Print diagnostic metadata without paths or account information.
   hooks      Print optional Antigravity lifecycle hook definitions.
+  skill <install|uninstall|path>
+             Manage the local /agy-hub skill for Antigravity CLI.
   --extra-cmd '<command>'
              Add its first line to the HUD when AGY_HUB_ALLOW_EXTRA_CMD=1.
   settings   Print a JSON override for agy --settings.
@@ -40,11 +45,17 @@ const write = (output) => { if (output) process.stdout.write(`${output}\n`); };
 async function preview(args) {
   const { values } = parseArgs({ args, options: {
     compact: { type: 'boolean' }, activity: { type: 'boolean' },
-    width: { type: 'string' }, plain: { type: 'boolean' }, last: { type: 'boolean' }, preset: { type: 'string' },
+    width: { type: 'string' }, plain: { type: 'boolean' }, last: { type: 'boolean' },
+    preset: { type: 'string' }, set: { type: 'string' },
   } });
   const width = values.width === undefined ? 110 : Number(values.width);
   if (!Number.isInteger(width) || width < 1) throw new Error('--width expects a positive integer.');
-  const config = values.preset === undefined ? readConfig() : normalizeConfig(presetConfig(values.preset));
+  const preset = values.preset === undefined ? undefined : presetConfig(values.preset);
+  let config = preset ? normalizeConfig(preset) : readConfig();
+  if (values.set !== undefined) {
+    const { parseConfigPatch, previewPreferences } = await import('./preferences.js');
+    config = previewPreferences(parseConfigPatch(values.set), { base: preset }).config;
+  }
   if (values.compact) config.lineLayout = 'compact';
   if (values.activity) {
     config.display.showTools = true;
@@ -62,16 +73,7 @@ async function preview(args) {
     }
     return;
   }
-  const state = normalizeState({
-    cwd: '/workspace/my-project', model: { display_name: 'Gemini 3.8 Flash' },
-    context_window: { used_percentage: 45 }, terminal_width: width,
-    quota: { 'gemini-5h': { remaining_fraction: 0.75, reset_in_seconds: 5400 } },
-    subagents: [{ name: 'explore', model: 'Gemini Flash', status: 'running', role: 'Finding auth code' }],
-  });
-  write(render(state, config, {
-    color: !values.plain && colorEnabled(), git: { branch: 'main', dirty: true },
-    activity: { running: [{ name: 'Edit', target: 'auth.ts' }], completed: [{ name: 'Read', count: 3 }, { name: 'Grep', count: 2 }] },
-  }));
+  write(samplePreview(config, { width, color: !values.plain && colorEnabled() }));
 }
 
 async function configure(command, args) {
@@ -98,6 +100,14 @@ async function main([command, ...args]) {
     return write(await statusline(args[0]));
   }
   if (command === 'preview') return preview(args);
+  if (command === 'setup') {
+    const { runSetup } = await import('./setup-command.js');
+    return write(await runSetup(args));
+  }
+  if (command === 'skill' && args.length === 1) {
+    const { manageSkill } = await import('./skill.js');
+    return write(await manageSkill(args[0]));
+  }
   if (command === '--help' || command === '-h') return process.stdout.write(help);
   if (['init', 'config', 'schema', 'set', 'undo'].includes(command)) return configure(command, args);
   if (command === 'hook' && args.length === 1) {

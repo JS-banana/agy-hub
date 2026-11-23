@@ -1,6 +1,6 @@
 {
   "name": "agy-hub",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A Claude HUD-style status line for Antigravity CLI",
   "type": "module",
   "bin": {
@@ -19,7 +19,8 @@
   "files": [
     "src/",
     "docs/parity.md",
-    "docs/architecture.md"
+    "docs/architecture.md",
+    "skills/agy-hub/SKILL.md"
   ],
   "license": "MIT",
   "devDependencies": {
