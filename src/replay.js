@@ -34,7 +34,7 @@ export function recordPreview(state, details) {
 
 export function recordedPreview() {
   const value = readObject(target());
-  if (!value || (value.version !== undefined && value.version !== 1)) return null;
+  if (value?.version !== 1) return null;
   const { state, details } = value;
   if (!isRecord(state) || !isRecord(details) || !isRecord(state.quota) || !Number.isFinite(state.now)
     || typeof state.model !== 'string' || !Array.isArray(state.addedDirs) || !state.addedDirs.every((path) => typeof path === 'string')

@@ -93,11 +93,11 @@ test('stdin and preview replay show local cost and mode without writing the esti
   assert.equal(existsSync(join(directory, 'cost')), false);
   assert.equal(run(['preview', '--last', '--plain']), frame);
   const previewFile = join(directory, 'preview.json');
-  const legacy = JSON.parse(readFileSync(previewFile, 'utf8'));
-  assert.equal(legacy.version, 1);
-  delete legacy.state.quota.weekly.expired;
-  writeFileSync(previewFile, JSON.stringify(legacy));
-  assert.equal(run(['preview', '--last', '--plain']), frame);
+  const saved = JSON.parse(readFileSync(previewFile, 'utf8'));
+  assert.equal(saved.version, 1);
+  delete saved.version;
+  writeFileSync(previewFile, JSON.stringify(saved));
+  assert.throws(() => run(['preview', '--last', '--plain']));
   assert.match(run([], { ...payload, cost: { total_usd: 0 } }), /Cost \$0\.00/);
   assert.equal(existsSync(join(directory, 'cost', `${conversationId}.json`)), true);
 });
@@ -245,21 +245,20 @@ test('records cumulative estimated cost changes once and separates quota weeks b
   assert.deepEqual(recordCosts(ended, settings, directory), { day: 0.25, week: null });
 });
 
-test('migrates a large legacy cost ledger without losing exact times or counting unpublished batches', (t) => {
+test('rotates cost ledger archives without losing exact times or counting unpublished batches', (t) => {
   const directory = temp(t);
   const costRoot = join(directory, 'cost');
   const file = join(costRoot, `${conversationId}.json`);
   mkdirSync(costRoot);
-  const events = Array.from({ length: 2000 }, (_, index) => ({
+  const events = Array.from({ length: 600 }, (_, index) => ({
     time: NOW - index * 1000, value: 0.125, group: index % 2 ? '3p' : 'gemini',
   }));
-  writeFileSync(file, JSON.stringify({ total: 250, events }, null, 2));
-  assert.ok(statSync(file).size > 128 * 1024);
+  writeFileSync(file, JSON.stringify({ total: 75, events, archives: [], nextArchive: 0 }, null, 2));
   const settings = normalizeConfig().display;
   const quota = { 'gemini-weekly': { remaining_fraction: 0.5, reset_in_seconds: 604_794 } };
-  const state = normalizeState({ ...sample, quota, conversation_id: conversationId, cost: { total_usd: 250.25 } }, NOW + 1000);
-  assert.deepEqual(recordCosts(state, settings, directory), { day: 250.25, week: 0.625 });
-  assert.deepEqual(recordCosts(state, settings, directory), { day: 250.25, week: 0.625 });
+  const state = normalizeState({ ...sample, quota, conversation_id: conversationId, cost: { total_usd: 75.25 } }, NOW + 1000);
+  assert.deepEqual(recordCosts(state, settings, directory), { day: 75.25, week: 0.625 });
+  assert.deepEqual(recordCosts(state, settings, directory), { day: 75.25, week: 0.625 });
 
   const ledger = JSON.parse(readFileSync(file, 'utf8'));
   const archiveRoot = join(costRoot, 'archives', conversationId);
@@ -269,9 +268,9 @@ test('migrates a large legacy cost ledger without losing exact times or counting
   }
   // An interrupted write can leave a new batch on disk without publishing it.
   writeFileSync(join(archiveRoot, `${ledger.nextArchive}.json`), JSON.stringify({ events: [{ time: NOW, value: 1024 }] }));
-  assert.deepEqual(recordCosts({ ...state, cost: null }, settings, directory), { day: 250.25, week: 0.625 });
+  assert.deepEqual(recordCosts({ ...state, cost: null }, settings, directory), { day: 75.25, week: 0.625 });
 
-  const muchLater = { ...state, now: state.now + 22 * 86_400_000, cost: 250.5 };
+  const muchLater = { ...state, now: state.now + 22 * 86_400_000, cost: 75.5 };
   assert.deepEqual(recordCosts(muchLater, settings, directory), { day: 0.25, week: 0.25 });
   assert.equal(existsSync(join(archiveRoot, `${ledger.archives[0].id}.json`)), false);
 });
@@ -281,11 +280,12 @@ test('retains an unreadable cost ledger without resetting its cumulative baselin
   const root = join(directory, 'cost');
   const file = join(root, `${conversationId}.json`);
   mkdirSync(root);
-  const unreadable = '{"total":';
-  writeFileSync(file, unreadable);
-  const state = normalizeState({ ...sample, conversation_id: conversationId, cost: { total_usd: 1 } }, NOW);
-  assert.deepEqual(recordCosts(state, normalizeConfig().display, directory), { day: 0, week: null });
-  assert.equal(readFileSync(file, 'utf8'), unreadable);
+  for (const unreadable of ['{"total":', '{"total":1,"events":[]}']) {
+    writeFileSync(file, unreadable);
+    const state = normalizeState({ ...sample, conversation_id: conversationId, cost: { total_usd: 1 } }, NOW);
+    assert.deepEqual(recordCosts(state, normalizeConfig().display, directory), { day: 0, week: null });
+    assert.equal(readFileSync(file, 'utf8'), unreadable);
+  }
 });
 
 test('preserves the cost baseline while a stale write lock is recovered', (t) => {

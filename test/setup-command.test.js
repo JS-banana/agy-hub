@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -142,7 +142,9 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   assert.equal(run('skill', 'install').status, 0);
   assert.equal(run('skill', 'uninstall').status, 0);
   assert.equal(existsSync(path), false);
+  assert.equal(existsSync(dirname(path)), false);
   const bundled = new URL('../skills/agy-hud/SKILL.md', import.meta.url);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, readFileSync(bundled));
   assert.match(run('skill', 'install').stdout, /Updated/);
   assert.equal(readFileSync(path, 'utf8'), installed);

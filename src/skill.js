@@ -1,6 +1,6 @@
 // @ts-check
 import { createHash, randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readTextFile } from './runtime/text-file.js';
@@ -50,6 +50,9 @@ export async function manageSkill(action, home = homedir()) {
     if (existing === null) return 'The /agy-hud skill is not installed.';
     await verifySkill();
     await unlink(path);
+    await rmdir(dirname(path)).catch((error) => {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error;
+    });
     return 'Removed the /agy-hud skill. Open a new agy session to reload skills.';
   }
   if (existing === installed) return 'The /agy-hud skill is already installed.';
