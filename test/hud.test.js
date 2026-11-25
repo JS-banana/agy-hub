@@ -214,6 +214,43 @@ test('honors weekly thresholds and absolute reset times without hiding quota exh
   assert.match(render(normalizeState({ ...payload, quota }), normalizeConfig(), { color: false }), /Weekly ████████░░ 81%/);
 });
 
+test('distinguishes expired quota windows from unused windows and unknown reset times', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  for (const [bucket, expired] of [
+    [{ remaining_fraction: 1, reset_in_seconds: 0 }, false],
+    [{ remaining_fraction: 0.62 }, false],
+    [{ remaining_amount: 12, reset_in_seconds: 0 }, false],
+    [{ remaining_fraction: 0.5, reset_in_seconds: 0 }, true],
+    [{ remaining_amount: 0, reset_in_seconds: 0 }, true],
+    [{ remaining_fraction: 1, reset_time: new Date(now).toISOString(), reset_in_seconds: 60 }, true],
+    [{ remaining_fraction: 0, reset_time: new Date(now + 1000).toISOString(), reset_in_seconds: 0 }, false],
+  ]) {
+    const state = normalizeState({ ...payload, quota: { 'gemini-5h': bucket } }, now);
+    assert.equal(state.quota.short.expired, expired, JSON.stringify(bucket));
+  }
+});
+
+test('renders only active quota windows in expanded and compact layouts', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  const past = new Date(now - 1000).toISOString();
+  const weekly = { remaining_fraction: 0.62, reset_in_seconds: 86_400 };
+  for (const [lineLayout, weeklyFrame] of [
+    ['expanded', '[Gemini Flash]\nUsage Weekly ████░░░░░░ 38% (resets in 1d)'],
+    ['compact', '[Gemini Flash] | Weekly ████░░░░░░ 38% (1d / 7d)'],
+  ]) {
+    const hud = (short, week, usageThreshold = 0) => {
+      const state = normalizeState({ model: payload.model, quota: { 'gemini-5h': short, 'gemini-weekly': week } }, now);
+      return render(state, normalizeConfig({ lineLayout, display: { usageThreshold } }), { color: false });
+    };
+    for (const remaining_fraction of [0.01, 0]) {
+      const short = { remaining_fraction, reset_time: past };
+      assert.equal(hud(short, weekly), weeklyFrame);
+      assert.equal(hud(short, weekly, 40), '[Gemini Flash]');
+      assert.equal(hud(short, { ...weekly, reset_time: past }), '[Gemini Flash]');
+    }
+  }
+});
+
 test('respects explicit context zero and never uses cumulative input as the context window', () => {
   assert.equal(normalizeState({ context_window: { used_percentage: 0, total_input_tokens: 20_000 } }).context.used, 0);
   assert.equal(normalizeState({ context_window: { context_window_size: 1000, total_input_tokens: 9000 } }).context, null);

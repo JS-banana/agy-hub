@@ -78,7 +78,6 @@ export function configCounts(state, home = homedir()) {
 }
 
 function snapshotWindow(window, time) {
-  if (!window) return null;
   return { used: window.used, amount: window.amount, exhausted: window.exhausted, observedAt: time,
     resetAt: window.resetAt ?? (window.reset !== 0 ? time + window.reset : 0) };
 }
@@ -90,6 +89,7 @@ function restoreWindow(window, now) {
   return {
     used, amount,
     exhausted: window.exhausted === true,
+    expired: false,
     reset: window.resetAt ? window.resetAt - now : 0,
   };
 }
@@ -99,6 +99,7 @@ export function externalQuota(state, display) {
   if (!quota.key) return quota;
   const filename = (path) => path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
   const keys = ['short', 'weekly'];
+  const active = (window) => Boolean(window && !window.expired);
   const disabled = (key) => quota.disabled?.includes(key);
   const valid = (snapshot, key) => {
     const window = snapshot?.[key];
@@ -108,18 +109,18 @@ export function externalQuota(state, display) {
       && finite(time) && time <= now && now - time <= display.externalUsageFreshnessMs;
   };
   const saved = display.externalUsagePath ? readObject(filename(display.externalUsagePath)) : null;
-  if ((quota.short || quota.weekly) && display.externalUsageWritePath) {
+  if (display.externalUsageWritePath && keys.some((key) => active(quota[key]))) {
     try {
       const path = filename(display.externalUsageWritePath);
       const before = readObject(path);
-      const windows = Object.fromEntries(keys.map((key) => [key, quota[key] ? snapshotWindow(quota[key], now)
+      const windows = Object.fromEntries(keys.map((key) => [key, active(quota[key]) ? snapshotWindow(quota[key], now)
         : valid(before, key) ? { ...before[key], observedAt: before[key].observedAt ?? before.time } : null]));
       if (before?.version !== 1 || before.key !== quota.key || !finite(before.time) || before.time > now || now - before.time >= 30_000 ||
         keys.some((key) => {
           const prior = before[key];
           const next = windows[key];
           return prior?.used !== next?.used || prior?.amount !== next?.amount || prior?.exhausted !== next?.exhausted
-            || (prior?.resetAt > now) !== (next?.resetAt > now);
+            || (next && !valid(before, key)) || (prior?.resetAt > now) !== (next?.resetAt > now);
         })) {
         writeObject(path, { version: 1, key: quota.key, time: now, scoped: quota.scoped === true, ...windows });
       }
@@ -129,12 +130,11 @@ export function externalQuota(state, display) {
   }
   const merged = { ...quota };
   for (const key of keys) {
-    if (quota[key] || !valid(saved, key)) continue;
-    const window = restoreWindow(saved[key], now);
-    if (window) {
-      merged[key] = window;
-      if (saved.scoped === true) merged.scoped = true;
-    }
+    if (active(quota[key])) continue;
+    if (valid(saved, key)) {
+      merged[key] = restoreWindow(saved[key], now);
+      if (merged[key] && saved.scoped === true) merged.scoped = true;
+    } else if (quota[key]?.expired) merged[key] = null;
   }
   return merged;
 }

@@ -31,7 +31,7 @@ function contextUsage(window) {
   };
 }
 
-/** @typedef {{used: number | null, amount: number | null, exhausted: boolean, reset: number, resetAt?: number}} QuotaWindow */
+/** @typedef {{used: number | null, amount: number | null, exhausted: boolean, expired: boolean, reset: number, resetAt?: number}} QuotaWindow */
 /** @typedef {{short?: QuotaWindow | null, weekly?: QuotaWindow | null, scoped?: boolean, key?: 'argon' | 'gemini' | '3p', disabled?: string[]}} UsageWindows */
 
 /** @param {Record<string, unknown>} quota
@@ -46,11 +46,16 @@ function quotaWindow(quota, key, now) {
   const remaining = fraction !== null && fraction <= 1 ? fraction : null;
   const amount = nonnegative(bucket.remaining_amount);
   if (remaining === null && amount === null) return null;
+  const explicitResetAt = timeValue(bucket.reset_time);
   const resetIn = nonnegative(bucket.reset_in_seconds);
-  const resetAt = timeValue(bucket.reset_time) ?? (resetIn === null ? null : now + resetIn * 1000);
+  const used = remaining === null ? null : percentage(100 * (1 - remaining));
+  const exhausted = (remaining ?? amount) === 0;
+  const expired = explicitResetAt !== null ? explicitResetAt <= now
+    : resetIn === 0 && (exhausted || (used !== null && used > 0));
+  // A zero countdown on an unused bucket gives no deadline to share.
+  const resetAt = explicitResetAt ?? (resetIn !== null && resetIn > 0 ? now + resetIn * 1000 : null);
   return {
-    used: remaining === null ? null : percentage(100 * (1 - remaining)), amount,
-    exhausted: (remaining ?? amount) === 0, reset: resetAt === null ? 0 : resetAt - now,
+    used, amount, exhausted, expired, reset: resetAt === null ? 0 : resetAt - now,
     ...(resetAt === null ? {} : { resetAt }),
   };
 }
