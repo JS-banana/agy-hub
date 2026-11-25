@@ -6,9 +6,9 @@ AGY Hub renders one frame each time `agy` supplies status line data. The default
 
 | Display | Source and limits |
 | --- | --- |
-| Model, context, and quota | The `agy` status line payload. Gemini, third-party models, and dedicated quotas have separate buckets. Balance-based quotas show the numeric balance. If both short-window and weekly quotas are present, a threshold, balance, or warning can make the weekly quota visible. |
+| Model, context, and quota | The `agy` status line payload supplies these values. Quota typically refreshes at the end of a turn or when you run `/usage`. Gemini, third-party models, and dedicated quotas have separate buckets. Balance-based quotas show the numeric balance. If both short-window and weekly quotas are present, a threshold, balance, or warning can make the weekly quota visible. |
 | Git and Jujutsu | Local repositories and the corresponding VCS commands. Git supports working tree changes and worktrees. Jujutsu reads its recorded working copy state. |
-| Tools, skills, and MCP | The current session log and optional tool hooks. Log analysis reads up to the last 8 MiB. Skill and MCP classification depends on recognizable markers or tool names. |
+| Tools, skills, and MCP | The current session log and optional tool hooks. AGY Hub reads new log bytes after the last complete line. When it needs to rebuild the cursor, it scans up to the last 8 MiB. Skill and MCP classification depends on recognizable markers or tool names. |
 | Subagents | The name, model, role, and status supplied by `agy`. The tested `agy 1.5.14` payload omitted subagent timing and reasoning effort. |
 | Session, mode, and tasks | Session tokens, current turn cache data, background tasks, and artifact counts come from `agy`. Mode comes from the first populated field among `cycle_mode`, `mode`, and `agent_mode`. Session duration, last reply time, and throughput depend on logs or hooks. The public payload lacks exact cache expiration and background task details. |
 | Cost, memory, and config counts | Session cost uses the reported amount when available. Memory and config counts come from the local system and files. |
@@ -31,10 +31,10 @@ Hooks retain workspace paths, tool names, relevant filenames, and invocation tim
 
 ## Local data and diagnostics
 
-- Cost totals, hook metadata, and preview frames live in `~/.gemini/antigravity-cli/agy-hub-data/` by default. Set `AGY_HUB_DATA_DIR` to change the location. Each feature writes data when enabled.
+- Cost totals, hook metadata, transcript cursors, and preview frames live in `~/.gemini/antigravity-cli/agy-hub-data/` by default. Set `AGY_HUB_DATA_DIR` to change the location. When a display feature reads a transcript, its per-conversation cursor stores the file identity, byte offset, tool names and counts, pending or running tool filenames, and model, timing, and token data for the HUD.
 - After enabling `display.recordPreview`, run `node src/cli.js preview --last` from the AGY Hub copy to render the most recent recorded frame with the current configuration. The recording substitutes project paths, branch names, session titles, and email addresses. It retains rendering data such as the model, quota, and activity.
 - `node src/cli.js doctor` shows local configuration paths and integration status. `node src/cli.js report` produces a concise diagnostic summary that omits paths, account information, quota values, and log contents.
-- To share quota snapshots between local processes, edit `display.externalUsagePath`, `display.externalUsageWritePath`, and `display.externalUsageFreshnessMs` in the configuration file. AGY Hub ignores snapshots past their reset time.
+- To share quota snapshots between local processes, set the snapshot paths in the configuration file. A window expires at its known reset time. AGY Hub excludes expired windows from writes to `display.externalUsageWritePath`. If `display.externalUsagePath` has an unexpired window for the same pool within `display.externalUsageFreshnessMs`, the HUD uses it. Otherwise, it omits the window and its limit notice until `agy` supplies fresh values.
 - To show the first output line of a local command, append `--extra-cmd 'your local command'` to the installed binding and set `AGY_HUB_ALLOW_EXTRA_CMD=1`. AGY Hub preserves this argument when it refreshes a binding that uses the standard form.
 
 ## Verified behavior
