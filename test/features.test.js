@@ -174,6 +174,27 @@ test('preserves a fresh snapshot from another session when the native short wind
   assert.equal(updated.weekly.observedAt, later);
 });
 
+test('discards snapshots observed before a known native reset while preserving the other window', (t) => {
+  const path = join(temp(t), 'quota.json');
+  const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;
+  const observe = (quota, now) => externalQuota(normalizeState({ ...sample, quota }, now), display);
+  const deadline = NOW + 1000;
+  const expired = { 'gemini-5h': { remaining_fraction: 0, reset_time: new Date(deadline).toISOString() } };
+  observe({ 'gemini-5h': { remaining_fraction: 0 }, 'gemini-weekly': { remaining_fraction: 0.62 } }, NOW);
+  const after = observe(expired, deadline);
+  assert.equal(after.short, null);
+  assert.equal(after.weekly.used, 38);
+  assert.equal(observe({}, deadline + 1).short, null);
+  observe({ 'gemini-5h': { remaining_fraction: 0.75 } }, deadline + 2);
+  assert.equal(observe(expired, deadline + 3).short.used, 25);
+  const nextReset = new Date(deadline + 4).toISOString();
+  const merged = observe({ 'gemini-5h': { remaining_fraction: 0, reset_time: nextReset },
+    'gemini-weekly': { remaining_fraction: 0.5 } }, deadline + 5);
+  assert.equal(merged.short, null);
+  assert.equal(merged.weekly.used, 50);
+  assert.equal(observe({}, deadline + 6).short, null);
+});
+
 test('replaces an elapsed snapshot with a fresh unused window whose only reset hint is zero', (t) => {
   const path = join(temp(t), 'quota.json');
   const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;

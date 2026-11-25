@@ -95,6 +95,8 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   const labeled = run(command);
   assert.match(labeled, /extra-label/);
   assert.doesNotMatch(labeled, /second line/);
+  assert.match(run('head -c 5000 /dev/zero >&2; ' + command), /extra-label/);
+  assert.doesNotMatch(run(command + '; head -c 5000 /dev/zero'), /extra-label/);
   assert.doesNotMatch(run(command, '0'), /extra-label/);
   const frame = run(command + ' && exec sleep 5');
   assert.doesNotMatch(frame, /extra-label/);

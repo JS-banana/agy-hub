@@ -1,6 +1,4 @@
 // @ts-check
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { readActivity } from '../activity.js';
 import { readConfig } from '../config.js';
 import { gitStatusAsync } from '../git.js';
@@ -10,22 +8,14 @@ import { render } from '../render.js';
 import { recordPreview } from '../replay.js';
 import { normalizeState } from '../state.js';
 import { labelText } from '../terminal.js';
+import { readCommand } from './command.js';
 import { readInput } from './input.js';
-
-const execFileAsync = promisify(execFile);
 
 /** @param {string} [command] */
 async function extraLabel(command) {
   if (!command || process.env.AGY_HUB_ALLOW_EXTRA_CMD !== '1' || process.platform === 'win32') return '';
-  try {
-    const probe = execFileAsync('/bin/sh', ['-c', command], {
-      timeout: 300, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 4096,
-    });
-    probe.child.stdin?.end();
-    return labelText((await probe).stdout.split('\n', 1)[0]);
-  } catch {
-    return '';
-  }
+  const { status, stdout } = await readCommand('/bin/sh', ['-c', command], { timeout: 300, maxBuffer: 4096 });
+  return status === 0 ? labelText(stdout.split('\n', 1)[0]) : '';
 }
 
 /** Read one callback, gather enabled probes, and hand the data to the pure renderer.

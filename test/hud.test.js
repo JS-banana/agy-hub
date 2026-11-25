@@ -222,6 +222,7 @@ test('distinguishes expired quota windows from unused windows and unknown reset 
     [{ remaining_fraction: 0.62 }, false],
     [{ remaining_amount: 12, reset_in_seconds: 0 }, false],
     [{ remaining_fraction: 0.5, reset_in_seconds: 0 }, true],
+    [{ remaining_fraction: 0.999, reset_in_seconds: 0 }, true],
     [{ remaining_amount: 0, reset_in_seconds: 0 }, true],
     [{ remaining_fraction: 1, reset_time: new Date(now).toISOString(), reset_in_seconds: 60 }, true],
     [{ remaining_fraction: 0, reset_time: new Date(now + 1000).toISOString(), reset_in_seconds: 0 }, false],
@@ -340,7 +341,7 @@ test('reuses complete transcript bytes and expires running tools on cache hits',
   const frame = read(now);
   assert.deepEqual(frame, summarizeTranscript(base + suffix, 'idle', now));
   assert.deepEqual(frame.completed, [{ name: 'Grep', count: 2 }]);
-  assert.deepEqual(ranges.splice(0), [[start, Buffer.byteLength(suffix)]]);
+  assert.deepEqual(ranges.splice(0), [[0, start + Buffer.byteLength(suffix)]]);
   const committed = start + Buffer.byteLength(done + '\n');
   const saved = readFileSync(cursor, 'utf8');
   assert.equal(JSON.parse(saved).offset, committed);
@@ -349,7 +350,7 @@ test('reuses complete transcript bytes and expires running tools on cache hits',
   assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done)]]);
   appendFileSync(file, '\n');
   assert.deepEqual(read(now), frame);
-  assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done + '\n')]]);
+  assert.deepEqual(ranges.splice(0), [[0, committed + Buffer.byteLength(done + '\n')]]);
   assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, statSync(file).size);
   assert.deepEqual(read(now), frame);
   assert.deepEqual(ranges, []);
@@ -362,11 +363,17 @@ test('rebuilds the cursor after truncation, replacement or invalid cache data', 
   assert.equal(read().model, 'Original model');
   writeFileSync(file, line('New'));
   assert.equal(read().model, 'New');
+  // Keep the inode and rewrite to the same size, then past the saved offset.
+  const padding = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(8192) }) + '\n';
+  for (const model of ['One', 'Two', 'Three']) {
+    writeFileSync(file, padding + line(model) + padding);
+    assert.equal(read().model, model);
+  }
   writeFileSync(file + '.new', line('Two'));
   renameSync(file + '.new', file);
   assert.equal(read().model, 'Two');
   const saved = JSON.parse(readFileSync(cursor, 'utf8'));
-  for (const corrupt of ['{', JSON.stringify({ ...saved, offset: -1 }),
+  for (const corrupt of ['{', JSON.stringify({ ...saved, version: 1 }), JSON.stringify({ ...saved, offset: -1 }),
     JSON.stringify({ ...saved, state: { ...saved.state, completed: { 'tools:Read': { name: 'Read', count: -2 } } } }),
     JSON.stringify({ ...saved, state: { ...saved.state, pending: Array(1025).fill(null) } }),
     ' '.repeat(256 * 1024) + '{}']) {
@@ -378,6 +385,24 @@ test('rebuilds the cursor after truncation, replacement or invalid cache data', 
   rmSync(cursor);
   mkdirSync(cursor);
   assert.equal(read().model, 'Two');
+});
+
+test('bounds transcript verification as a growing log moves beyond the cached range', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const block = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(4 * 1024 * 1024) }) + '\n';
+  const planner = (model) => JSON.stringify({ type: 'PLANNER_RESPONSE', model }) + '\n';
+  writeFileSync(file, planner('First') + block);
+  assert.equal(read().model, 'First');
+  for (let i = 0; i < 2; i++) {
+    appendFileSync(file, block);
+    assert.equal(read().model, 'First');
+  }
+  appendFileSync(file, block + planner('Latest'));
+  assert.equal(read().model, 'Latest');
+  const saved = JSON.parse(readFileSync(cursor, 'utf8'));
+  assert.equal(saved.start, statSync(file).size - 8 * 1024 * 1024);
+  appendFileSync(file, '{}\n');
+  assert.equal(read().model, 'Latest');
 });
 
 test('resumes after an oversized partial line and a split UTF-8 append', (t) => {

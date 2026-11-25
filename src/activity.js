@@ -1,4 +1,5 @@
 // @ts-check
+import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
@@ -24,7 +25,7 @@ const PATH_TOOLS = new Set(['Read', 'Edit', 'Write']);
 /** @typedef {{pending: (ToolCall | null)[], running: {call: ToolCall, observed: number | null}[],
  *  completed: Record<string, CompletedTool>, started: number | null, lastReply: number | null,
  *  replyTokens: number | null, model: string}} TranscriptState */
-/** @typedef {{version: 1, dev: string, ino: string, offset: number, truncated: boolean, state: TranscriptState}} Cursor */
+/** @typedef {{version: 2, dev: string, ino: string, stamp: string, start: number, offset: number, digest: string, state: TranscriptState}} Cursor */
 
 /** @param {unknown} call @returns {ToolCall | null} */
 export function toolCall(call) {
@@ -130,9 +131,11 @@ const validCall = (call) => isRecord(call) && validName(call) && validLabel(call
 
 /** @param {unknown} cache @param {import('node:fs').BigIntStats} info @returns {cache is Cursor} */
 function validCache(cache, info) {
-  if (!isRecord(cache) || cache.version !== 1 || cache.dev !== String(info.dev) || cache.ino !== String(info.ino)
-    || typeof cache.offset !== 'number' || !Number.isSafeInteger(cache.offset) || cache.offset < 0
-    || typeof cache.truncated !== 'boolean' || !isRecord(cache.state)) return false;
+  if (!isRecord(cache) || cache.version !== 2 || cache.dev !== String(info.dev) || cache.ino !== String(info.ino)
+    || typeof cache.start !== 'number' || !Number.isSafeInteger(cache.start) || cache.start < 0
+    || typeof cache.offset !== 'number' || !Number.isSafeInteger(cache.offset) || cache.offset < cache.start
+    || typeof cache.stamp !== 'string' || typeof cache.digest !== 'string' || !/^[a-f0-9]{64}$/.test(cache.digest)
+    || !isRecord(cache.state)) return false;
   const state = cache.state;
   if (Object.keys(state).length !== Object.keys(emptyState()).length
     || !validTime(state.started) || !validTime(state.lastReply) || !validLabel(state.model)
@@ -166,31 +169,53 @@ function readRange(fd, start, length) {
  */
 function readTranscript(fd, info, cursorPath, agentState, now) {
   const saved = readObject(cursorPath, CURSOR_BYTES);
-  const cursor = validCache(saved, info) && info.size >= saved.offset
+  let cursor = validCache(saved, info) && info.size >= saved.offset
     && info.size - BigInt(saved.offset) <= MAX_TAIL_BYTES ? saved : null;
-  if (cursor && info.size === BigInt(cursor.offset)) return summary(cursor.state, agentState, now, cursor.truncated);
+  const stamp = [info.size, info.mtimeNs, info.ctimeNs].join(':');
+  if (cursor?.stamp === stamp) {
+    const remaining = Number(info.size - BigInt(cursor.offset));
+    if (remaining) applyLines(cursor.state, readRange(fd, BigInt(cursor.offset), remaining).toString('utf8'));
+    return summary(cursor.state, agentState, now, cursor.start > 0);
+  }
 
+  // A larger file on the same inode can be a rewrite. Verify every byte that
+  // contributed to the cached state before parsing the append. Allow a rebuilt
+  // 8 MiB tail to grow by another 8 MiB before rebasing the verification range.
   const tailStart = info.size > MAX_TAIL_BYTES ? info.size - BigInt(MAX_TAIL_BYTES) : 0n;
-  const start = cursor ? BigInt(cursor.offset) : tailStart;
-  const truncated = cursor ? cursor.truncated : start > 0n;
+  if (cursor && (cursor.start > tailStart || info.size - BigInt(cursor.start) > 2 * MAX_TAIL_BYTES)) cursor = null;
+  let start = cursor ? BigInt(cursor.start) : tailStart;
+  let buffer = readRange(fd, start, Number(info.size - start));
+  let hash = createHash('sha256');
+  if (cursor) {
+    const committed = cursor.offset - cursor.start;
+    hash.update(buffer.subarray(0, committed));
+    if (hash.copy().digest('hex') === cursor.digest) {
+      buffer = buffer.subarray(committed);
+    } else {
+      buffer = buffer.subarray(Number(tailStart - start));
+      start = tailStart;
+      cursor = null;
+      hash = createHash('sha256');
+    }
+  }
+  const truncated = start > 0n;
   const state = cursor?.state ?? emptyState();
-  const buffer = readRange(fd, start, Number(info.size - start));
   const end = buffer.lastIndexOf(0x0a) + 1;
   // A tail starting inside a line can only resume at its first newline.
   const begin = !cursor && truncated ? buffer.indexOf(0x0a) + 1 : 0;
   if (!cursor && truncated && !begin) return summary(state, agentState, now, truncated);
   if (end > begin) applyLines(state, buffer.toString('utf8', begin, end));
-  const offset = Number(start + BigInt(end));
-  if ((!cursor || end > 0) && Number.isSafeInteger(offset)
+  const offset = (cursor?.offset ?? Number(start)) + end;
+  if (Number.isSafeInteger(offset)
     && state.pending.length + state.running.length <= MAX_CACHED_TOOLS && Object.keys(state.completed).length <= MAX_CACHED_TOOLS) {
     try {
-      writeObject(cursorPath, { version: 1, dev: String(info.dev), ino: String(info.ino), offset, truncated, state }, CURSOR_BYTES);
+      const digest = hash.update(buffer.subarray(0, end)).digest('hex');
+      writeObject(cursorPath, { version: 2, dev: String(info.dev), ino: String(info.ino), stamp,
+        start: Number(start), offset, digest, state }, CURSOR_BYTES);
     } catch { /* Activity is available even if the cursor cannot be saved. */ }
   }
   if (end < buffer.length) {
-    const frame = structuredClone(state);
-    applyLines(frame, buffer.toString('utf8', end));
-    return summary(frame, agentState, now, truncated);
+    applyLines(state, buffer.toString('utf8', end));
   }
   return summary(state, agentState, now, truncated);
 }

@@ -116,32 +116,40 @@ export function externalQuota(state, display) {
   const keys = ['short', 'weekly'];
   const active = (window) => Boolean(window && !window.expired);
   const disabled = (key) => quota.disabled?.includes(key);
+  const predatesReset = (time, key) => quota[key]?.expired && quota[key].resetAt !== undefined && time < quota[key].resetAt;
   const valid = (snapshot, key) => {
     const window = snapshot?.[key];
     const time = window?.observedAt ?? snapshot?.time;
     return snapshot?.version === 1 && snapshot.key === quota.key && !disabled(key)
       && isRecord(window) && finite(window.resetAt) && (window.resetAt === 0 || window.resetAt > now)
-      && finite(time) && time <= now && now - time <= display.externalUsageFreshnessMs;
+      && finite(time) && time <= now && now - time <= display.externalUsageFreshnessMs && !predatesReset(time, key);
   };
   const saved = display.externalUsagePath ? readObject(filename(display.externalUsagePath)) : null;
-  if (display.externalUsageWritePath && keys.some((key) => active(quota[key]))) {
-    try {
-      const path = filename(display.externalUsageWritePath);
-      const before = readObject(path);
-      const windows = Object.fromEntries(keys.map((key) => [key, active(quota[key]) ? snapshotWindow(quota[key], now)
-        : valid(before, key) ? { ...before[key], observedAt: before[key].observedAt ?? before.time } : null]));
-      if (before?.version !== 1 || before.key !== quota.key || !finite(before.time) || before.time > now || now - before.time >= 30_000 ||
-        keys.some((key) => {
-          const prior = before[key];
-          const next = windows[key];
-          return prior?.used !== next?.used || prior?.amount !== next?.amount || prior?.exhausted !== next?.exhausted
-            || (next && !valid(before, key)) || (prior?.resetAt > now) !== (next?.resetAt > now);
-        })) {
-        writeObject(path, { version: 1, key: quota.key, time: now, scoped: quota.scoped === true, ...windows });
+  function publish(path) {
+    const before = readObject(path);
+    if (!keys.some((key) => active(quota[key]))) {
+      if (before?.version !== 1 || before.key !== quota.key) return;
+      const stale = keys.filter((key) => before[key] && predatesReset(before[key].observedAt ?? before.time, key));
+      if (stale.length) {
+        for (const key of stale) before[key] = null;
+        writeObject(path, before);
       }
-    } catch {
-      // Native quota remains available if writing a snapshot fails.
+      return;
     }
+    const windows = Object.fromEntries(keys.map((key) => [key, active(quota[key]) ? snapshotWindow(quota[key], now)
+      : valid(before, key) ? { ...before[key], observedAt: before[key].observedAt ?? before.time } : null]));
+    if (before?.version !== 1 || before.key !== quota.key || !finite(before.time) || before.time > now || now - before.time >= 30_000 ||
+      keys.some((key) => {
+        const prior = before[key];
+        const next = windows[key];
+        return prior?.used !== next?.used || prior?.amount !== next?.amount || prior?.exhausted !== next?.exhausted
+          || (next && !valid(before, key)) || (prior?.resetAt > now) !== (next?.resetAt > now);
+      })) {
+      writeObject(path, { version: 1, key: quota.key, time: now, scoped: quota.scoped === true, ...windows });
+    }
+  }
+  if (display.externalUsageWritePath && keys.some((key) => quota[key])) {
+    try { publish(filename(display.externalUsageWritePath)); } catch { /* Snapshots are best-effort. */ }
   }
   const merged = { ...quota };
   for (const key of keys) {

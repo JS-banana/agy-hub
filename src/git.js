@@ -1,44 +1,13 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
+import { readCommand } from './runtime/command.js';
 
 const readOptions = {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
   timeout: 250, killSignal: 'SIGKILL', maxBuffer: 256 * 1024,
 };
-
-function runAsync(command, args, options) {
-  return new Promise((resolve, reject) => {
-    const { timeout, ...spawnOptions } = options;
-    const child = spawn(command, args, spawnOptions);
-    const chunks = [];
-    let bytes = 0;
-    let stopped = false;
-    function stop() {
-      stopped = true;
-      // A subprocess can inherit stdout and keep the pipe open after Git exits.
-      child.stdout.destroy();
-      child.kill(options.killSignal);
-    }
-    const timer = setTimeout(stop, timeout);
-    timer.unref?.();
-    child.stdout.on('data', (chunk) => {
-      bytes += chunk.length;
-      if (bytes <= options.maxBuffer) chunks.push(chunk);
-      else stop();
-    });
-    child.once('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once('close', (code) => {
-      clearTimeout(timer);
-      const status = stopped ? null : code;
-      resolve({ status, stdout: status === null ? '' : Buffer.concat(chunks).toString(options.encoding) });
-    });
-  }).catch(() => ({ status: null }));
-}
 
 function commandEnvironment() {
   const path = process.env.PATH?.split(delimiter).filter(isAbsolute).join(delimiter);
@@ -242,7 +211,7 @@ export function gitStatus(cwd, gitConfig = {}, vcs, jjConfig) {
 }
 
 export async function gitStatusAsync(cwd, gitConfig = {}, vcs, jjConfig) {
-  const probeSteps = probe(cwd, gitConfig, vcs, jjConfig, { run: runAsync, realpath, pathInfo: pathInfoAsync });
+  const probeSteps = probe(cwd, gitConfig, vcs, jjConfig, { run: readCommand, realpath, pathInfo: pathInfoAsync });
   let step = probeSteps.next();
   while (!step.done) {
     let value;

@@ -51,7 +51,7 @@ function quotaWindow(quota, key, now) {
   const used = remaining === null ? null : percentage(100 * (1 - remaining));
   const exhausted = (remaining ?? amount) === 0;
   const expired = explicitResetAt !== null ? explicitResetAt <= now
-    : resetIn === 0 && (exhausted || (used !== null && used > 0));
+    : resetIn === 0 && (exhausted || (remaining !== null && remaining < 1));
   // A zero countdown on an unused bucket gives no deadline to share.
   const resetAt = explicitResetAt ?? (resetIn !== null && resetIn > 0 ? now + resetIn * 1000 : null);
   return {
