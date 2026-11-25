@@ -408,7 +408,7 @@ test('renders tool and subagent stages with known transcript timings and no inve
   const payload = { ...sample, subagents: [{ name: 'research', status: 'running', model: 'Flash' }] };
   const config = { display: { showTools: true, showMcp: true, showAgents: true, modelSource: 'transcript' } };
   const running = view(payload, config, { activity });
-  assert.match(running, /\[Gemini 3.8 Flash\]/);
+  assert.match(running, /\[Gemini 3.8 Flash ◑ high\]/);
   assert.match(running, /✓ mcp__sample__search ×1\n◐ research \[Flash\]$/);
   payload.subagents[0].status = 'completed';
   assert.match(view(payload, config, { activity }), /✓ research \[Flash\]$/);

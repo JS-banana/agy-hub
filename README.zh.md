@@ -25,20 +25,20 @@ AGY HUD 是为 Antigravity CLI（`agy`）打造的可配置终端状态栏。它
 **`default`** —— 默认两行，均衡展示模型、项目、Git、上下文和配额：
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
 **`compact`** —— 紧凑单行，空间充足时将项目与主要指标合并到一行：
 
 ```text
-[Gemini 3.8 Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
+[Gemini 3.8 Flash ◑ high] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
 ```
 
 **`activity`** —— 扩展活动视图，在分隔线下实时展示工具调用与子代理状态：
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ────────────────────────────────────────────────────────────────
 ◐ Edit: auth.ts | ✓ Read ×3 | ✓ Grep ×2
@@ -108,6 +108,7 @@ node src/cli.js config undo
 | `display.showTools` / `showAgents` | `false` | 实时显示工具调用计数与子代理状态 |
 | `display.sevenDayThreshold` | `80` | 5 小时配额达到多少百分比时显示周配额；设为 `0` 则有数据就常驻显示 |
 | `gitStatus.showFileStats` | `false` | 在分支旁显示变更文件数或增删行数 |
+| `display.customLine` | `""` | 在项目行显示自定义文字，如 `⚡阳光彩虹小白马`；颜色由 `colors.custom` 控制 |
 
 完整配置项、配色、JSON Schema 与环境变量见 [完整配置参考](docs/configuration.md)；数据来源、API 费率与可选 Hooks 见 [Antigravity 集成指南](docs/integration.md)。
 

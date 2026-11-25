@@ -76,7 +76,7 @@ function header(frame, compact) {
   const entries = new Map([
     ['model', [model]],
     ['project', projectParts(frame, compact)],
-    ['agent', [dim(agentPart(frame))]],
+    ['agent', [agentPart(frame)]],
     ['sessionName', [dim(display.showSessionName ? state.title : '')]],
     ['version', [dim(display.showAgyVersion && state.version ? `agy v${state.version}` : '')]],
     ['extra', [dim(frame.extra)]],
@@ -91,15 +91,27 @@ function header(frame, compact) {
 }
 
 /** @param {Frame} frame */
-function agentPart({ config: { display }, state, words }) {
+function agentPart({ config: { display }, state, words, style }) {
+  /** @param {string} value */
+  const tint = (value) => value ? style(value, 'agent') : '';
   if (display.showAgentModeOnly) {
     const mode = labelText(state.cycleMode);
     const key = mode.toLowerCase().replaceAll('_', '-');
-    return Object.hasOwn(words.agentModes, key)
-      ? words.agentModes[/** @type {keyof typeof words.agentModes} */ (key)] : mode;
+    return tint(Object.hasOwn(words.agentModes, key)
+      ? words.agentModes[/** @type {keyof typeof words.agentModes} */ (key)] : mode);
   }
   if (!display.showAgentState) return '';
-  return [state.agent, state.agentState, state.cycleMode, state.sandbox ? 'Sandbox' : ''].filter(Boolean).join(' · ');
+  let status = '';
+  if (state.agentState) {
+    const isIdle = state.agentState.toLowerCase() === 'idle';
+    if (display.agentStateFormat === 'active') {
+      status = isIdle ? '' : style(`◐ ${state.agentState.replaceAll('_', ' ')}`, 'warning');
+    } else {
+      status = isIdle ? style(state.agentState, 'label') : tint(state.agentState);
+    }
+  }
+  const parts = [tint(state.agent), status, tint(state.cycleMode), tint(state.sandbox ? 'Sandbox' : '')].filter(Boolean);
+  return parts.join(tint(' · '));
 }
 
 /** @param {Frame} frame @param {string} key */
