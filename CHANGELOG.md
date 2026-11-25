@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-25
+
 ### Added
 
 - `projectLineOrder` now accepts `"custom"` to place `display.customLine` anywhere on the project row (overriding `display.customLinePosition`).
@@ -41,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guided `setup` wizard and the `init`, `config`, `install`, `uninstall`, `doctor`, `report`, `preview`, and `hooks` commands, with automatic backup and restore of an existing status line
 - JSON Schema for editor validation and an installable `agy-hub` Agent skill for plain-language configuration
 
-[Unreleased]: https://github.com/JS-banana/agy-hud/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/JS-banana/agy-hud/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/JS-banana/agy-hud/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/JS-banana/agy-hud/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/JS-banana/agy-hud/releases/tag/v0.4.0
