@@ -91,6 +91,12 @@ test('renders execution mode on its own without changing the full agent status',
   const both = hud({ display: { showAgentState: true, showAgentModeOnly: true } });
   assert.equal(both, modeOnly);
   assert.doesNotMatch(hud({}), /Auto mode|reviewer/);
+  assert.match(hud({ display: { showAgentState: true, agentStateFormat: 'icon' } }), /reviewer · ○ · auto · Sandbox/);
+  const busy = normalizeState({ ...payload, cycle_mode: 'auto', agent_state: 'tool_use' });
+  const icon = normalizeConfig({ display: { showAgentState: true, agentStateFormat: 'icon' }, colors: { agent: 'cyan', warning: 'yellow' } });
+  const colored = render(busy, icon);
+  assert.match(colored, /\x1b\[33m◐ tool_use\x1b\[0m/);
+  assert.match(colored, /\x1b\[36mauto\x1b\[0m/);
 
   const compact = normalizeConfig({ lineLayout: 'compact', language: 'zh-Hant', display: { showAgentModeOnly: true } });
   const plan = normalizeState({ ...payload, cycle_mode: 'plan' });

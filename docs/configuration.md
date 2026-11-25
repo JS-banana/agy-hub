@@ -139,7 +139,7 @@ node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 | `modelFormat` | `"full"` | `"full"`, `"compact"`, or `"short"` |
 | `modelSource` | `"stdin"` | `"stdin"`, `"auto"`, or `"transcript"` |
 | `modelOverride` | `""` | Replace the displayed model name with custom text |
-| `showEffortLevel` | `false` | Show reasoning effort in the model badge |
+| `showEffortLevel` | `false` | Show reasoning effort in the model badge (for the Orchestrator, read from the `orchestrator.planner` name in `agy` settings) |
 | `effortFormat` | `"full"` | `"full"`, `"symbol"`, or `"text"` |
 | `showProvider` | `false` | Prefix the model badge with `providerName` |
 | `providerName` | `""` | Provider label shown when `showProvider` is `true` |
@@ -151,6 +151,7 @@ node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 | `customLinePosition` | `"last"` | `"last"` or `"first"` |
 | `showAgentState` | `false` | Show agent name, state, operating mode, and sandbox badge |
 | `showAgentModeOnly` | `false` | Show only the execution mode (`Auto mode` / `Plan mode`); overrides `showAgentState` |
+| `agentStateFormat` | `"text"` | `"text"`, or `"icon"` to show `○` when idle and a highlighted `◐ <state>` while busy |
 | `showSessionName` | `false` | Show conversation title when provided by `agy` |
 | `showAgyVersion` | `false` | Show the Antigravity CLI version |
 | `showTasks` | `false` | Show background tasks and artifact counts |
@@ -182,7 +183,7 @@ node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 Color keys accept standard ANSI color names (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `dim`, `bright*`), `0`–`255` palette integers, or `#rrggbb` hex strings. Set `NO_COLOR=1` to disable all colors.
 
 - `model` (`"cyan"`), `project` (`"yellow"`), `git` (`"magenta"`), `gitBranch` (`"cyan"`), `label` (`"dim"`)
-- `context` (`"green"`), `usage` (`"brightBlue"`), `warning` (`"yellow"`), `usageWarning` (`"brightMagenta"`), `critical` (`"red"`), `custom` (`208`)
+- `context` (`"green"`), `usage` (`"brightBlue"`), `warning` (`"yellow"`), `usageWarning` (`"brightMagenta"`), `critical` (`"red"`), `custom` (`208`), `agent` (`"dim"`)
 - `barFilled` (`"█"`), `barEmpty` (`"░"`) — single-cell glyphs used for progress bars
 
 ## Environment variables

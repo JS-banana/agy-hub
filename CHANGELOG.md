@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `display.showEffortLevel` shows the Orchestrator's reasoning effort, read from the `orchestrator.planner` name in `agy` settings because `agy` omits it from the status line payload.
+- `display.agentStateFormat: "icon"` shows `○` when the agent is idle and a highlighted `◐ <state>` while it works; `colors.agent` sets the color of the agent state and mode.
+
 ### Changed
 
 - Renamed the project from AGY Hub to AGY HUD (`agy-hud`). Commands, the `/agy-hud` skill, `AGY_HUD_*` environment variables, and configuration and data paths use the new name only. To upgrade from 0.5.0 or earlier, run `uninstall` (and `skill uninstall` if installed) with the old version, update any `agy-hub` entry in `.agents/hooks.json` with `hooks`, then install this version.

@@ -108,3 +108,25 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   assert.match(frame, /Approx RAM/);
   assert.match(frame, /1 AGENTS\.md \/ GEMINI\.md/);
 });
+
+test('the Orchestrator badge takes its reasoning effort from the configured planner', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-orchestrator-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const settings = join(root, '.gemini', 'antigravity-cli');
+  mkdirSync(settings, { recursive: true });
+  writeFileSync(join(settings, 'settings.json'), JSON.stringify({ orchestrator: { planner: 'Gemini 4 Neon (High)' } }));
+  const config = join(root, 'hud.json');
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  /** @param {object} model @param {boolean} showEffortLevel */
+  const run = (model, showEffortLevel = true) => {
+    writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display: { showEffortLevel } }));
+    return execFileSync(process.execPath, [cli], {
+      env: { ...process.env, HOME: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(root, 'data'), NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
+      input: JSON.stringify({ cwd: root, model }), encoding: 'utf8', timeout: 2500,
+    });
+  };
+  const orchestrator = { id: 'Orchestrator (Neon)', display_name: 'Orchestrator (Neon)' };
+  assert.match(run(orchestrator), /\[Orchestrator \(Neon\) ◑ high\]/);
+  assert.match(run(orchestrator, false), /\[Orchestrator \(Neon\)\]/);
+  assert.match(run({ display_name: 'Gemini 4 Neon (Low)', effort: 'low' }), /\[Gemini 4 Neon ○ low\]/);
+});
