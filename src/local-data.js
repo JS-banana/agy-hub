@@ -1,7 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { freemem, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { recordCosts as summarizeCosts } from './cost.js';
 import { isRecord } from './objects.js';
 import { readObject, writeObject } from './runtime/json-file.js';
@@ -11,26 +13,39 @@ export { readObject, writeObject } from './runtime/json-file.js';
 export const dataDir = () => process.env.AGY_HUB_DATA_DIR || join(homedir(), '.gemini', 'antigravity-cli', 'agy-hub-data');
 const finite = (value) => Number.isFinite(value) && value >= 0;
 
-export function memoryUsage() {
+const execFileAsync = promisify(execFile);
+const vmStatOptions = { encoding: 'utf8', timeout: 120, maxBuffer: 16 * 1024 };
+
+function summarizeMemory(raw = '') {
   const total = totalmem();
   if (!total) return null;
   let used = total - freemem();
-  try {
-    if (process.platform === 'linux') {
-      const raw = readFileSync('/proc/meminfo', 'utf8');
-      const free = /^MemAvailable:\s+(\d+) kB/m.exec(raw);
-      if (free) used = total - Number(free[1]) * 1024;
-    } else if (process.platform === 'darwin') {
-      const raw = execFileSync('/usr/bin/vm_stat', { encoding: 'utf8', timeout: 120, maxBuffer: 16 * 1024 });
-      const page = /page size of (\d+) bytes/i.exec(raw);
-      const active = /^Pages active:\s+(\d+)/m.exec(raw);
-      const wired = /^Pages wired down:\s+(\d+)/m.exec(raw);
-      if (page && active && wired) used = Number(page[1]) * (Number(active[1]) + Number(wired[1]));
-    }
-  } catch {
-    // Fall back to the operating system's free-memory counter.
+  if (process.platform === 'linux') {
+    const free = /^MemAvailable:\s+(\d+) kB/m.exec(raw);
+    if (free) used = total - Number(free[1]) * 1024;
+  } else if (process.platform === 'darwin') {
+    const page = /page size of (\d+) bytes/i.exec(raw);
+    const active = /^Pages active:\s+(\d+)/m.exec(raw);
+    const wired = /^Pages wired down:\s+(\d+)/m.exec(raw);
+    if (page && active && wired) used = Number(page[1]) * (Number(active[1]) + Number(wired[1]));
   }
   return { total, used: Math.max(0, Math.min(total, used)) };
+}
+
+export function memoryUsage() {
+  try {
+    if (process.platform === 'linux') return summarizeMemory(readFileSync('/proc/meminfo', 'utf8'));
+    if (process.platform === 'darwin') return summarizeMemory(execFileSync('/usr/bin/vm_stat', vmStatOptions));
+  } catch { /* Fall back to the operating system's free-memory counter. */ }
+  return summarizeMemory();
+}
+
+export async function memoryUsageAsync() {
+  try {
+    if (process.platform === 'linux') return summarizeMemory(await readFile('/proc/meminfo', 'utf8'));
+    if (process.platform === 'darwin') return summarizeMemory((await execFileAsync('/usr/bin/vm_stat', vmStatOptions)).stdout);
+  } catch { /* Fall back to the operating system's free-memory counter. */ }
+  return summarizeMemory();
 }
 
 const MARKERS = ['.git', '.jj', '.hg'];

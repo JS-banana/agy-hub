@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
+import { lstat, realpath } from 'node:fs/promises';
 import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
 
 const readOptions = {
@@ -7,20 +8,46 @@ const readOptions = {
   timeout: 250, killSignal: 'SIGKILL', maxBuffer: 256 * 1024,
 };
 
+function runAsync(command, args, options) {
+  return new Promise((resolve, reject) => {
+    const { timeout, ...spawnOptions } = options;
+    const child = spawn(command, args, spawnOptions);
+    const chunks = [];
+    let bytes = 0;
+    let stopped = false;
+    function stop() {
+      stopped = true;
+      // A subprocess can inherit stdout and keep the pipe open after Git exits.
+      child.stdout.destroy();
+      child.kill(options.killSignal);
+    }
+    const timer = setTimeout(stop, timeout);
+    timer.unref?.();
+    child.stdout.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes <= options.maxBuffer) chunks.push(chunk);
+      else stop();
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      const status = stopped ? null : code;
+      resolve({ status, stdout: status === null ? '' : Buffer.concat(chunks).toString(options.encoding) });
+    });
+  }).catch(() => ({ status: null }));
+}
+
 function commandEnvironment() {
   const path = process.env.PATH?.split(delimiter).filter(isAbsolute).join(delimiter);
   return { ...process.env, PATH: path || '/usr/bin:/bin', GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' };
 }
 
-function git(cwd, args) {
-  return spawnSync('git', ['-C', cwd, '--no-optional-locks', '-c', 'core.fsmonitor=false',
-    '-c', 'protocol.allow=never', ...args], { ...readOptions, env: commandEnvironment() });
-}
-
 // `git status` can invoke a clean filter configured by the checkout. Disable all
 // configured drivers before asking Git to examine the working tree.
-function filterOverrides(cwd) {
-  const result = git(cwd, ['config', '--null', '--name-only', '--get-regexp', '^filter\\.']);
+function filterOverrides(result) {
   if (result.error || ![0, 1].includes(result.status)) return null;
   const overrides = [];
   const drivers = new Set();
@@ -80,11 +107,11 @@ function readStatus(output, showFileStats) {
   return { status, oid };
 }
 
-function addLineDiff(cwd, status, oid, overrides) {
+function* addLineDiff(git, status, oid, overrides) {
   // diff-index compares the final working tree with the last commit without refreshing the index.
-  const base = oid === '(initial)' ? git(cwd, ['hash-object', '-t', 'tree', '--stdin']).stdout?.trim() : oid;
+  const base = oid === '(initial)' ? (yield git(['hash-object', '-t', 'tree', '--stdin'])).stdout?.trim() : oid;
   if (!base || !/^[a-f0-9]+$/.test(base)) return;
-  const result = git(cwd, [...overrides, 'diff-index', '-M', '--numstat', '-z', '--no-relative', '--no-ext-diff',
+  const result = yield git([...overrides, 'diff-index', '-M', '--numstat', '-z', '--no-relative', '--no-ext-diff',
     '--no-textconv', '--ignore-submodules=all', base, '--']);
   if (result.status !== 0) return;
 
@@ -109,8 +136,8 @@ function addLineDiff(cwd, status, oid, overrides) {
   status.lineDiff = totals;
 }
 
-function addWorktreeInfo(cwd, status, showWorktree) {
-  const result = git(cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
+function* addWorktreeInfo(git, status, showWorktree) {
+  const result = yield git(['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
   if (result.status !== 0) return;
   const paths = result.stdout.replace(/\n$/, '').split('\n');
   if (paths.length !== 3 || !paths.every(isAbsolute)) return;
@@ -119,42 +146,43 @@ function addWorktreeInfo(cwd, status, showWorktree) {
   if (showWorktree && dirname(worktreeGitDir) === join(sharedGitDir, 'worktrees')) status.worktree = basename(root);
 }
 
-function readGitStatus(cwd, { showAheadBehind, showDirty, showFileStats, showWorktree }) {
-  const overrides = filterOverrides(cwd);
-  if (!overrides) return gitBranchOnly(cwd);
+function* readGitStatus(cwd, { showAheadBehind, showDirty, showFileStats, showWorktree }, run) {
+  const git = (args) => run('git', ['-C', cwd, '--no-optional-locks', '-c', 'core.fsmonitor=false',
+    '-c', 'protocol.allow=never', ...args], { ...readOptions, env: commandEnvironment() });
+  const overrides = filterOverrides(yield git(['config', '--null', '--name-only', '--get-regexp', '^filter\\.']));
   const untracked = showFileStats ? 'all' : showDirty ? 'normal' : 'no';
-  const result = git(cwd, [...overrides, 'status', '--porcelain=v2', '--branch', '-z', '--ignore-submodules=all',
+  const result = overrides && (yield git([...overrides, 'status', '--porcelain=v2', '--branch', '-z', '--ignore-submodules=all',
     showAheadBehind ? '--ahead-behind' : '--no-ahead-behind', `--untracked-files=${untracked}`,
-    ...(showFileStats ? ['--find-renames'] : [])]);
-  if (result.status !== 0) return gitBranchOnly(cwd);
+    ...(showFileStats ? ['--find-renames'] : [])]));
+  if (result?.status !== 0) {
+    const head = yield git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    return head.status === 0 ? { branch: head.stdout.trim(), dirty: false, ahead: 0, behind: 0 } : null;
+  }
 
   const { status, oid } = readStatus(result.stdout, showFileStats);
   if (!status.branch) return null;
   if (status.branch === '(detached)') {
-    const tag = git(cwd, ['describe', '--tags', '--exact-match', 'HEAD']);
+    const tag = yield git(['describe', '--tags', '--exact-match', 'HEAD']);
     status.branch = tag.status === 0 ? tag.stdout.trim() : oid ? `detached:${oid.slice(0, 7)}` : 'HEAD';
   }
-  if (status.fileStats?.trackedFiles.length) addLineDiff(cwd, status, oid, overrides);
-  if (showWorktree || status.fileStats?.trackedFiles.length) addWorktreeInfo(cwd, status, showWorktree);
+  if (status.fileStats?.trackedFiles.length) yield* addLineDiff(git, status, oid, overrides);
+  if (showWorktree || status.fileStats?.trackedFiles.length) yield* addWorktreeInfo(git, status, showWorktree);
   return status;
 }
 
-function gitBranchOnly(cwd) {
-  const head = git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-  return head.status === 0 ? { branch: head.stdout.trim(), dirty: false, ahead: 0, behind: 0 } : null;
+async function pathInfoAsync(path) {
+  try { return await lstat(path); } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
 }
 
-function pathInfo(path) {
-  return lstatSync(path, { throwIfNoEntry: false });
-}
-
-function findJjRoot(cwd) {
+function* findJjRoot(cwd, io) {
   try {
-    let directory = realpathSync(cwd);
+    let directory = yield io.realpath(cwd);
     for (let depth = 0; depth < 64; depth++) {
-      const metadata = pathInfo(join(directory, '.jj'));
+      const metadata = yield io.pathInfo(join(directory, '.jj'));
       if (metadata) return metadata.isDirectory() ? directory : null;
-      if (pathInfo(join(directory, '.git'))) return null;
+      if (yield io.pathInfo(join(directory, '.git'))) return null;
       const parent = dirname(directory);
       if (parent === directory) return null;
       directory = parent;
@@ -166,13 +194,14 @@ function findJjRoot(cwd) {
 const jjTemplate = 'change_id.shortest(8) ++ "\\x1f" ++ self.local_bookmarks().map(|bookmark| bookmark.name()).join("\\x1e")'
   + ' ++ "\\x1f" ++ if(self.empty(), "0", "1") ++ "\\x1f" ++ if(self.conflict(), "1", "0")';
 
-function readJjStatus(cwd) {
+function* readJjStatus(cwd, io) {
   const metadata = join(cwd, '.jj');
   const repo = join(metadata, 'repo');
   // Older jj versions load config from metadata in the workspace. A repo pointer
   // could also redirect us to legacy config outside the workspace we inspected.
-  if (!pathInfo(repo)?.isDirectory() || pathInfo(join(metadata, 'config.toml')) || pathInfo(join(repo, 'config.toml'))) return null;
-  const result = spawnSync('jj', ['--ignore-working-copy', '--at-operation=@', '--no-pager',
+  if (!(yield io.pathInfo(repo))?.isDirectory() || (yield io.pathInfo(join(metadata, 'config.toml')))
+    || (yield io.pathInfo(join(repo, 'config.toml')))) return null;
+  const result = yield io.run('jj', ['--ignore-working-copy', '--at-operation=@', '--no-pager',
     'log', '-r', '@', '--no-graph', '--color', 'never', '-T', jjTemplate], {
     ...readOptions, cwd, maxBuffer: 16 * 1024, env: { ...commandEnvironment(), JJ_CONFIG: '' },
   });
@@ -185,18 +214,43 @@ function readJjStatus(cwd) {
   return { branch, dirty: dirty === '1', ahead: 0, behind: 0, vcs: 'jj', conflict: conflict === '1' };
 }
 
-export function gitStatus(cwd, gitConfig = {}, vcs, jjConfig) {
+// Both entry points drive this sequence of reads so command policy, fallbacks
+// and parsing stay in one place. Each yielded read is a result or a promise.
+function* probe(cwd, gitConfig, vcs, jjConfig, io) {
   if (typeof cwd !== 'string' || !isAbsolute(cwd) || cwd.includes('\0') || (vcs && vcs !== 'git' && vcs !== 'jj')) return null;
   // Windows resolves unqualified programs from the working directory before PATH.
   if (process.platform === 'win32') return null;
-  const jjRoot = jjConfig?.enabled || vcs === 'jj' ? findJjRoot(cwd) : null;
+  const jjRoot = jjConfig?.enabled || vcs === 'jj' ? yield* findJjRoot(cwd, io) : null;
   if (vcs === 'jj' && !jjRoot) return null;
   if (jjRoot) {
     try {
-      const jj = jjConfig?.enabled ? readJjStatus(jjRoot) : null;
+      const jj = jjConfig?.enabled ? yield* readJjStatus(jjRoot, io) : null;
       if (jj) return jj;
-      if (!pathInfo(join(jjRoot, '.git'))) return null;
+      if (!(yield io.pathInfo(join(jjRoot, '.git')))) return null;
     } catch { return null; }
   }
-  return gitConfig.enabled === false ? null : readGitStatus(cwd, gitConfig);
+  return gitConfig.enabled === false ? null : yield* readGitStatus(cwd, gitConfig, io.run);
+}
+
+export function gitStatus(cwd, gitConfig = {}, vcs, jjConfig) {
+  const probeSteps = probe(cwd, gitConfig, vcs, jjConfig, {
+    run: spawnSync, realpath: realpathSync, pathInfo: (path) => lstatSync(path, { throwIfNoEntry: false }),
+  });
+  let step = probeSteps.next();
+  while (!step.done) step = probeSteps.next(step.value);
+  return step.value;
+}
+
+export async function gitStatusAsync(cwd, gitConfig = {}, vcs, jjConfig) {
+  const probeSteps = probe(cwd, gitConfig, vcs, jjConfig, { run: runAsync, realpath, pathInfo: pathInfoAsync });
+  let step = probeSteps.next();
+  while (!step.done) {
+    let value;
+    try { value = await step.value; } catch (error) {
+      step = probeSteps.throw(error);
+      continue;
+    }
+    step = probeSteps.next(value);
+  }
+  return step.value;
 }

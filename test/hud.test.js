@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -291,6 +292,112 @@ test('pairs parallel calls and results, and reads only a conversation transcript
   writeFileSync(actualPath, events);
   assert.deepEqual(readActivity({ conversationId: id, transcriptPath, agentState: 'tool_use' }, home), expected);
   assert.equal(readActivity({ conversationId: '../../other', transcriptPath: actualPath }, home), null);
+});
+
+function transcriptFixture(t) {
+  const home = mkdtempSync(join(tmpdir(), 'agy-hub-transcript-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const conversationId = '12345678-abcd-ef01-2345-6789abcdef01';
+  const cli = join(home, '.gemini', 'antigravity-cli');
+  const file = join(cli, 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  mkdirSync(dirname(file), { recursive: true });
+  return { file, cursor: join(cli, 'agy-hub-data', 'transcript', `${conversationId}.json`),
+    read: (now, agentState = 'idle') => readActivity({ conversationId, now, agentState }, home) };
+}
+
+test('reuses complete transcript bytes and expires running tools on cache hits', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const now = Date.UTC(2026, 10, 24);
+  const planner = { type: 'PLANNER_RESPONSE', created_at: new Date(now).toISOString(), model: '模型',
+    tool_calls: [{ name: 'read_file' }, { name: 'grep_search' }, { name: 'grep_search' }] };
+  const base = [planner, { type: 'GENERIC', status: 'RUNNING', created_at: planner.created_at }]
+    .map((event) => JSON.stringify(event) + '\n').join('');
+  writeFileSync(file, base);
+
+  // Count only reads from the already-open transcript, excluding the cursor JSON.
+  const { ino } = statSync(file, { bigint: true });
+  const readSync = fs.readSync;
+  const ranges = [];
+  const spy = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    const bytes = readSync(fd, buffer, offset, length, position);
+    if (fs.fstatSync(fd, { bigint: true }).ino === ino) ranges.push([Number(position), bytes]);
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+
+  const start = Buffer.byteLength(base);
+  assert.deepEqual(read(now), summarizeTranscript(base, 'idle', now));
+  assert.deepEqual(ranges.splice(0), [[0, start]]);
+  assert.equal(read(now + 59_999).running[0].name, 'Read');
+  assert.deepEqual(read(now + 60_000).running, []);
+  assert.deepEqual(read(now + 60_000, 'tool_use').running.map(({ name }) => name), ['Read', 'Grep', 'Grep']);
+  assert.deepEqual(ranges, []);
+
+  const done = JSON.stringify({ type: 'GENERIC', status: 'DONE' });
+  const suffix = done + '\n' + done;
+  appendFileSync(file, suffix);
+  const frame = read(now);
+  assert.deepEqual(frame, summarizeTranscript(base + suffix, 'idle', now));
+  assert.deepEqual(frame.completed, [{ name: 'Grep', count: 2 }]);
+  assert.deepEqual(ranges.splice(0), [[start, Buffer.byteLength(suffix)]]);
+  const committed = start + Buffer.byteLength(done + '\n');
+  const saved = readFileSync(cursor, 'utf8');
+  assert.equal(JSON.parse(saved).offset, committed);
+  assert.deepEqual(read(now), frame);
+  assert.equal(readFileSync(cursor, 'utf8'), saved);
+  assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done)]]);
+  appendFileSync(file, '\n');
+  assert.deepEqual(read(now), frame);
+  assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done + '\n')]]);
+  assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, statSync(file).size);
+  assert.deepEqual(read(now), frame);
+  assert.deepEqual(ranges, []);
+});
+
+test('rebuilds the cursor after truncation, replacement or invalid cache data', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const line = (model) => JSON.stringify({ type: 'PLANNER_RESPONSE', model }) + '\n';
+  writeFileSync(file, line('Original model'));
+  assert.equal(read().model, 'Original model');
+  writeFileSync(file, line('New'));
+  assert.equal(read().model, 'New');
+  writeFileSync(file + '.new', line('Two'));
+  renameSync(file + '.new', file);
+  assert.equal(read().model, 'Two');
+  const saved = JSON.parse(readFileSync(cursor, 'utf8'));
+  for (const corrupt of ['{', JSON.stringify({ ...saved, offset: -1 }),
+    JSON.stringify({ ...saved, state: { ...saved.state, completed: { 'tools:Read': { name: 'Read', count: -2 } } } }),
+    JSON.stringify({ ...saved, state: { ...saved.state, pending: Array(1025).fill(null) } }),
+    ' '.repeat(256 * 1024) + '{}']) {
+    writeFileSync(cursor, corrupt);
+    assert.deepEqual(read(), summarizeTranscript(line('Two'), 'idle'));
+    assert.deepEqual(JSON.parse(readFileSync(cursor, 'utf8')), saved);
+  }
+  // An unwritable cursor must still yield the transcript for this frame.
+  rmSync(cursor);
+  mkdirSync(cursor);
+  assert.equal(read().model, 'Two');
+});
+
+test('resumes after an oversized partial line and a split UTF-8 append', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const initial = JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'Earlier' }) + '\n';
+  writeFileSync(file, initial);
+  assert.equal(read().model, 'Earlier');
+  appendFileSync(file, ' '.repeat(8 * 1024 * 1024) + initial.trimEnd());
+  assert.deepEqual(read(), { running: [], completed: [] });
+
+  const offset = statSync(file).size + 1;
+  const line = Buffer.from(JSON.stringify({ type: 'PLANNER_RESPONSE', model: '星', created_at: '2026-11-24T00:00:00Z' }) + '\n');
+  const split = line.indexOf('星') + 1;
+  appendFileSync(file, Buffer.concat([Buffer.from('\n'), line.subarray(0, split)]));
+  assert.deepEqual(read(), { running: [], completed: [] });
+  assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, offset);
+  appendFileSync(file, line.subarray(split));
+  const expected = { running: [], completed: [], model: '星', lastReply: Date.UTC(2026, 10, 24) };
+  assert.deepEqual(read(), expected);
+  assert.deepEqual(read(), expected);
 });
 
 test('handles Git before the first commit and displays dirty state in the command entry point', (t) => {
