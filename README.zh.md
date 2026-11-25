@@ -108,7 +108,7 @@ node src/cli.js config undo
 | `display.showTools` / `showAgents` | `false` | 实时显示工具调用计数与子代理状态 |
 | `display.sevenDayThreshold` | `80` | 5 小时配额达到多少百分比时显示周配额；设为 `0` 则有数据就常驻显示 |
 | `gitStatus.showFileStats` | `false` | 在分支旁显示变更文件数或增删行数 |
-| `display.customLine` | `""` | 在项目行显示自定义文字，如 `⚡阳光彩虹小白马`；颜色由 `colors.custom` 控制 |
+| `display.customLine` | `""` | 在项目行显示自定义文字，如 `⚡阳光彩虹小白马`；颜色由 `colors.custom` 控制，位置可通过 `projectLineOrder` 中的 `"custom"` 排序 |
 
 完整配置项、配色、JSON Schema 与环境变量见 [完整配置参考](docs/configuration.md)；数据来源、API 费率与可选 Hooks 见 [Antigravity 集成指南](docs/integration.md)。
 
