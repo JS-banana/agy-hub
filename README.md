@@ -108,6 +108,7 @@ Commonly tuned options:
 | `display.showTools` / `showAgents` | `false` | Show live/completed tools and running/finished subagents |
 | `display.sevenDayThreshold` | `80` | 5h usage % at which weekly quota appears (`0` shows whenever available) |
 | `gitStatus.showFileStats` | `false` | Show changed file counts and line diffs next to the Git branch |
+| `display.customLine` | `""` | Custom text on the project row, e.g. `⚡ ship it`; color via `colors.custom` |
 
 See [Configuration reference](docs/configuration.md) for all options, colors, JSON Schema setup, and environment variables, and [Antigravity integration](docs/integration.md) for data sources, API cost rates, and optional hooks.
 
