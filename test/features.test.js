@@ -26,7 +26,7 @@ const view = (payload, config, details = {}) =>
   render(normalizeState(payload, NOW), normalizeConfig(config), { ...details, color: false });
 
 function temp(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-hub-features-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-features-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -77,7 +77,7 @@ test('stdin and preview replay show local cost and mode without writing the esti
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const run = (args, payload) => execFileSync(process.execPath, [cli, ...args], {
     input: payload && JSON.stringify(payload), encoding: 'utf8',
-    env: { ...process.env, AGY_HUB_CONFIG: config, AGY_HUB_DATA_DIR: directory, AGY_HUB_DISABLE: '0', NO_COLOR: '1' },
+    env: { ...process.env, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: directory, AGY_HUD_DISABLE: '0', NO_COLOR: '1' },
   });
   const payload = {
     conversation_id: conversationId, model: { id: 'claude-sonnet-5-5-high' },
@@ -305,7 +305,7 @@ test('preserves the cost baseline while a stale write lock is recovered', (t) =>
 
 test('combines the documented AGY hook lifecycle with transcript data and excludes secrets', (t) => {
   const directory = temp(t);
-  const definitions = hookDefinitions()['agy-hub'];
+  const definitions = hookDefinitions()['agy-hud'];
   assert.match(definitions.PostToolUse[0].hooks[0].command, / hook PostToolUse$/);
   assert.match(definitions.SessionStart[0].command, / hook SessionStart$/);
   const input = { conversationId, workspacePaths: ['/tmp/project', '/tmp/shared'], lastUserInput: 'secret prompt' };
@@ -326,7 +326,7 @@ test('combines the documented AGY hook lifecycle with transcript data and exclud
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const invoke = (event) => JSON.parse(execFileSync(process.execPath, [cli, 'hook', event], {
     input: JSON.stringify({ conversationId, stepIdx: 3, toolCall: { name: 'read_file' } }),
-    env: { ...process.env, AGY_HUB_DATA_DIR: directory }, encoding: 'utf8',
+    env: { ...process.env, AGY_HUD_DATA_DIR: directory }, encoding: 'utf8',
   }));
   assert.deepEqual(invoke('PreToolUse'), { decision: 'allow' });
   assert.deepEqual(invoke('PostToolUse'), {});

@@ -1,6 +1,6 @@
 # Architecture
 
-AGY Hub is a status line command for the Antigravity CLI. Each invocation receives a JSON object and returns one rendered frame. Both the source checkout and unpacked release run directly on Node.js as ESM JavaScript. JSDoc describes module interfaces, and modules with `@ts-check` use TypeScript's strict checks.
+AGY HUD is a status line command for the Antigravity CLI. Each invocation receives a JSON object and returns one rendered frame. Both the source checkout and unpacked release run directly on Node.js as ESM JavaScript. JSDoc describes module interfaces, and modules with `@ts-check` use TypeScript's strict checks.
 
 ```mermaid
 flowchart LR

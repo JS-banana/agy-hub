@@ -23,7 +23,7 @@ import { createInterface } from 'node:readline';
 
 const copy = {
   en: {
-    title: 'AGY Hub setup',
+    title: 'AGY HUD setup',
     layout: { expanded: 'Expanded', compact: 'Compact' },
     layoutPrompt: 'Layout [Enter to keep]: ',
     features: ['Tool activity', 'Subagents', 'Git file stats'],
@@ -33,12 +33,12 @@ const copy = {
     invalid: 'Choose one of the displayed options.',
     previewTitle: 'Sample preview',
     saveOnly: 'Save these settings? [y/N] ',
-    saveInstall: 'Save these settings and enable AGY Hub? [y/N] ',
-    replace: 'Setup will replace your custom agy statusline and save it for agy-hub uninstall.',
+    saveInstall: 'Save these settings and enable AGY HUD? [y/N] ',
+    replace: 'Setup will replace your custom agy statusline and save it for agy-hud uninstall.',
     cancelled: 'Setup canceled.',
   },
   'zh-Hans': {
-    title: 'AGY Hub 设置',
+    title: 'AGY HUD 设置',
     layout: { expanded: '展开', compact: '紧凑' },
     layoutPrompt: '选择布局，直接 Enter 保留：',
     features: ['工具活动', '子代理', 'Git 变更统计'],
@@ -48,12 +48,12 @@ const copy = {
     invalid: '请输入列表中的选项。',
     previewTitle: '示例预览',
     saveOnly: '保存这些设置？[y/N] ',
-    saveInstall: '保存这些设置并启用 AGY Hub？[y/N] ',
-    replace: '这会替换你当前的自定义 agy 状态栏并保存备份，可用 agy-hub uninstall 恢复。',
+    saveInstall: '保存这些设置并启用 AGY HUD？[y/N] ',
+    replace: '这会替换你当前的自定义 agy 状态栏并保存备份，可用 agy-hud uninstall 恢复。',
     cancelled: '设置已取消。',
   },
   'zh-Hant': {
-    title: 'AGY Hub 設定',
+    title: 'AGY HUD 設定',
     layout: { expanded: '展開', compact: '緊湊' },
     layoutPrompt: '選擇版面，直接 Enter 保留：',
     features: ['工具活動', '子代理', 'Git 變更統計'],
@@ -63,8 +63,8 @@ const copy = {
     invalid: '請輸入清單中的選項。',
     previewTitle: '範例預覽',
     saveOnly: '儲存這些設定？[y/N] ',
-    saveInstall: '儲存這些設定並啟用 AGY Hub？[y/N] ',
-    replace: '這會替換你目前的自訂 agy 狀態列並儲存備份，可用 agy-hub uninstall 恢復。',
+    saveInstall: '儲存這些設定並啟用 AGY HUD？[y/N] ',
+    replace: '這會替換你目前的自訂 agy 狀態列並儲存備份，可用 agy-hud uninstall 恢復。',
     cancelled: '設定已取消。',
   },
 };

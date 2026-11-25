@@ -1,6 +1,6 @@
 # Configuration Reference
 
-AGY Hub works out of the box without a config file. When you customize settings, they are stored in `~/.gemini/antigravity-cli/agy-hub.json` (or the path in `AGY_HUB_CONFIG`).
+AGY HUD works out of the box without a config file. When you customize settings, they are stored in `~/.gemini/antigravity-cli/agy-hud.json` (or the path in `AGY_HUD_CONFIG`).
 
 Only include keys you want to override. Missing or invalid fields fall back to their defaults at runtime, and `config set` / `setup` write atomically with one-step rollback via `config undo`.
 
@@ -32,8 +32,8 @@ To enable autocomplete and validation in JSON editors:
 
 ```sh
 node src/cli.js init
-node src/cli.js config schema --json-schema > "$(dirname "$(node src/cli.js config path)")/agy-hub.schema.json"
-node src/cli.js config set '{"$schema":"./agy-hub.schema.json"}'
+node src/cli.js config schema --json-schema > "$(dirname "$(node src/cli.js config path)")/agy-hud.schema.json"
+node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 ```
 
 ## Presets
@@ -189,10 +189,12 @@ Color keys accept standard ANSI color names (`black`, `red`, `green`, `yellow`, 
 
 | Variable | Purpose |
 | --- | --- |
-| `AGY_HUB_CONFIG` | Override the default configuration file path |
-| `AGY_HUB_DATA_DIR` | Override `~/.gemini/antigravity-cli/agy-hub-data/` for cost ledgers, hook data, transcript cursors, and recorded previews |
-| `AGY_HUB_DISABLE=1` | Disable the HUD for a single `agy` session |
-| `AGY_HUB_ALLOW_EXTRA_CMD=1` | Allow `--extra-cmd '<command>'` to append its first output line to the HUD |
+| `AGY_HUD_CONFIG` | Override the default configuration file path |
+| `AGY_HUD_DATA_DIR` | Override `~/.gemini/antigravity-cli/agy-hud-data/` for cost ledgers, hook data, transcript cursors, and recorded previews |
+| `AGY_HUD_DISABLE=1` | Disable the HUD for a single `agy` session |
+| `AGY_HUD_ALLOW_EXTRA_CMD=1` | Allow `--extra-cmd '<command>'` to append its first output line to the HUD |
 | `NO_COLOR=1` | Disable ANSI colors in HUD and preview output |
+
+The `AGY_HUB_*` names, `agy-hub.json`, and `agy-hub-data/` from releases before the AGY HUD rename are still read when the new name is absent.
 
 See [Antigravity integration](integration.md) for data sources, API cost estimation rates, and optional hooks, or [Architecture](architecture.md) for module boundaries.

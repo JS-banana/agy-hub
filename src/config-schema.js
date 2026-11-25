@@ -348,7 +348,7 @@ export function jsonSchema() {
   const root = schemaGroup(shape);
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    title: 'AGY Hub configuration',
+    title: 'AGY HUD configuration',
     ...root,
     properties: {
       $schema: { type: 'string', description: 'JSON Schema URL used by configuration editors.' },

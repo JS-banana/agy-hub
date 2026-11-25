@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the project from AGY Hub to AGY HUD (`agy-hud`), since it is a heads-up display rather than a hub. Existing `AGY_HUB_*` environment variables, `agy-hub.json` configuration, `agy-hub-data` state, and installation backups keep working, and `agy-hub` remains a command alias. `skill install` replaces a managed `/agy-hub` skill with `/agy-hud`. If you merged tool hooks, replace the `agy-hub` entry in `.agents/hooks.json` with the output of `hooks`.
+
 ## [0.5.0] - 2026-11-25
 
 ### Changed
@@ -30,6 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guided `setup` wizard and the `init`, `config`, `install`, `uninstall`, `doctor`, `report`, `preview`, and `hooks` commands, with automatic backup and restore of an existing status line
 - JSON Schema for editor validation and an installable `agy-hub` Agent skill for plain-language configuration
 
-[Unreleased]: https://github.com/JS-banana/agy-hub/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/JS-banana/agy-hub/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/JS-banana/agy-hub/releases/tag/v0.4.0
+[Unreleased]: https://github.com/JS-banana/agy-hud/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/JS-banana/agy-hud/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/JS-banana/agy-hud/releases/tag/v0.4.0

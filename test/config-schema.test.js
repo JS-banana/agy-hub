@@ -23,7 +23,7 @@ test('declares every default, documentation entry, and schema entry in the same 
 
 test('normalizes legacy config and allows editor metadata without mixing it into the HUD', () => {
   const raw = {
-    $schema: './agy-hub.schema.json',
+    $schema: './agy-hud.schema.json',
     language: 'zh-TW',
     pathLevels: 'full',
     maxWidth: null,

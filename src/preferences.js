@@ -86,7 +86,7 @@ function restoreText(path, text) {
     unlinkSync(path);
     return;
   }
-  const staged = join(dirname(path), `.agy-hub-${randomUUID()}.tmp`);
+  const staged = join(dirname(path), `.agy-hud-${randomUUID()}.tmp`);
   try {
     writeFileSync(staged, text, { flag: 'wx', mode: 0o600 });
     renameSync(staged, path);
@@ -153,7 +153,7 @@ function savePatch({ file, undoFile }, patch, createOnly = false, guided = false
   if (readUndo(undoFile) !== oldUndo) throw new Error('Undo record changed while saving. Run config set again.');
   restoreText(undoFile, nextUndo);
   function restoreUndo() {
-    if (readUndo(undoFile) !== nextUndo) throw new Error('The undo record was changed outside AGY Hub.');
+    if (readUndo(undoFile) !== nextUndo) throw new Error('The undo record was changed outside AGY HUD.');
     restoreText(undoFile, oldUndo);
   }
 

@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { withLegacy } from './legacy-name.js';
 import { isRecord } from './objects.js';
 import { readTextFile } from './runtime/text-file.js';
 
@@ -21,7 +22,7 @@ const RECOVERY_BYTES = 4 * SETTINGS_BYTES;
 const entryPoint = fileURLToPath(new URL('./cli.js', import.meta.url));
 
 function requirePosix() {
-  if (process.platform === 'win32') throw new Error('AGY Hub setup requires macOS or Linux.');
+  if (process.platform === 'win32') throw new Error('AGY HUD setup requires macOS or Linux.');
 }
 
 /** @param {string} value */
@@ -73,7 +74,7 @@ function serialize(path, value, restoring = false) {
 
 /** @param {string} path @param {string} text @param {FileSnapshot | null} original @param {number} [mode] */
 async function replaceText(path, text, original, mode = original?.mode ?? 0o600) {
-  const temporaryDirectory = await mkdtemp(join(dirname(path), '.agy-hub-'));
+  const temporaryDirectory = await mkdtemp(join(dirname(path), '.agy-hud-'));
   try {
     const staged = join(temporaryDirectory, 'data');
     await writeFile(staged, text, { mode: 0o600 });
@@ -104,20 +105,20 @@ async function withSettingsLock(file, createDirectory, operation) {
   requirePosix();
   const path = await resolveSettings(file);
   if (createDirectory) await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const lock = `${path}.agy-hub.lock`;
+  const lock = `${path}.agy-hud.lock`;
   try {
     await mkdir(lock, { mode: 0o700 });
   } catch (error) {
     const { code } = /** @type {NodeJS.ErrnoException} */ (error);
-    if (code === 'ENOENT' && !createDirectory) return 'AGY Hub has no saved installation.';
+    if (code === 'ENOENT' && !createDirectory) return 'AGY HUD has no saved installation.';
     if (code === 'EEXIST') {
-      throw new Error(`AGY Hub setup is locked at ${lock}. If a previous setup was interrupted and no setup is running, remove the empty lock directory and retry.`);
+      throw new Error(`AGY HUD setup is locked at ${lock}. If a previous setup was interrupted and no setup is running, remove the empty lock directory and retry.`);
     }
     throw error;
   }
 
   try {
-    return await operation(path, `${path}.agy-hub-backup.json`);
+    return await operation(path, withLegacy(`${path}.agy-hud-backup.json`));
   } finally {
     await rmdir(lock);
   }
@@ -130,7 +131,7 @@ function readBackup(path) {
   const { commands, createdSettings } = file.value;
   if (!Array.isArray(commands) || !commands.length || commands.some((command) => !bindingPaths(command))
     || typeof createdSettings !== 'boolean') {
-    throw new Error(`Invalid AGY Hub backup in ${path}.`);
+    throw new Error(`Invalid AGY HUD backup in ${path}.`);
   }
   return { ...file, value: { ...file.value, commands, createdSettings } };
 }
@@ -159,9 +160,9 @@ function planInstall(path, backupPath, original, backup, options) {
   if (parsed?.base === desired.command) {
     if (current?.enabled === false) return {
       text: serialize(path, { ...settings, statusLine: { ...current, enabled: true } }),
-      message: `Enabled AGY Hub in ${path}. Restart agy to load it.`,
+      message: `Enabled AGY HUD in ${path}. Restart agy to load it.`,
     };
-    return { message: `AGY Hub is already configured in ${path}.` };
+    return { message: `AGY HUD is already configured in ${path}.` };
   }
 
   const managed = savedBinding(current?.command, backup);
@@ -176,7 +177,7 @@ function planInstall(path, backupPath, original, backup, options) {
     custom,
     text: serialize(path, { ...settings, statusLine }),
     backup: serialize(backupPath, saved),
-    message: `Installed AGY Hub in ${path}. Restart agy to load it.`,
+    message: `Installed AGY HUD in ${path}. Restart agy to load it.`,
   };
 }
 
@@ -219,7 +220,7 @@ export async function install({ settingsPath: file = settingsPath(), executable,
 export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
   return withSettingsLock(file, false, async (path, backupPath) => {
     const backup = readBackup(backupPath);
-    if (!backup) return 'AGY Hub has no saved installation.';
+    if (!backup) return 'AGY HUD has no saved installation.';
 
     const original = readJson(path);
     const settings = original?.value ?? {};
@@ -238,7 +239,7 @@ export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
     }
 
     await unlink(backupPath);
-    return `Removed AGY Hub from ${path}. Restart agy to load the restored settings.`;
+    return `Removed AGY HUD from ${path}. Restart agy to load the restored settings.`;
   });
 }
 
@@ -287,7 +288,7 @@ export async function diagnoseInstallation({ settingsPath: file = settingsPath()
   const enabled = configured && statusLine?.enabled !== false;
   const paths = bindingPaths(statusLine?.command);
   const current = paths?.base === createStatusLine().command;
-  const backupPath = `${target}.agy-hub-backup.json`;
+  const backupPath = withLegacy(`${target}.agy-hud-backup.json`);
   let backup;
   try { backup = readBackup(backupPath); } catch {
     return { state: 'invalid-backup', enabled, managed: current };

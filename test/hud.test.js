@@ -283,7 +283,7 @@ test('pairs parallel calls and results, and reads only a conversation transcript
   const expected = { running: [{ name: 'Edit', target: 'main.js' }], completed: [{ name: 'Read', count: 1 }] };
   assert.deepEqual(summarizeTranscript(events, 'tool_use'), expected);
   assert.deepEqual(summarizeTranscript(events, 'idle').running, []);
-  const home = mkdtempSync(join(tmpdir(), 'agy-hub-test-'));
+  const home = mkdtempSync(join(tmpdir(), 'agy-hud-test-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const id = '12345678-abcd-ef01-2345-6789abcdef01';
   const suffix = join('brain', id, '.system_generated', 'logs', 'transcript.jsonl');
@@ -296,13 +296,13 @@ test('pairs parallel calls and results, and reads only a conversation transcript
 });
 
 function transcriptFixture(t) {
-  const home = mkdtempSync(join(tmpdir(), 'agy-hub-transcript-'));
+  const home = mkdtempSync(join(tmpdir(), 'agy-hud-transcript-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const conversationId = '12345678-abcd-ef01-2345-6789abcdef01';
   const cli = join(home, '.gemini', 'antigravity-cli');
   const file = join(cli, 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl');
   mkdirSync(dirname(file), { recursive: true });
-  return { file, cursor: join(cli, 'agy-hub-data', 'transcript', `${conversationId}.json`),
+  return { file, cursor: join(cli, 'agy-hud-data', 'transcript', `${conversationId}.json`),
     read: (now, agentState = 'idle') => readActivity({ conversationId, now, agentState }, home) };
 }
 
@@ -472,14 +472,14 @@ test('resumes after an oversized partial line and a split UTF-8 append', (t) => 
 });
 
 test('handles Git before the first commit and displays dirty state in the command entry point', (t) => {
-  const cwd = mkdtempSync(join(tmpdir(), 'agy-hub-git-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'agy-hud-git-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q', '-b', 'hud-test', cwd]);
   assert.deepEqual(gitStatus(cwd, { showAheadBehind: true, showDirty: true }), { branch: 'hud-test', dirty: false, ahead: 0, behind: 0 });
   writeFileSync(join(cwd, 'untracked'), 'test');
   const entry = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const output = execFileSync(process.execPath, [entry], {
-    env: { ...process.env, AGY_HUB_CONFIG: join(cwd, 'absent.json'), AGY_HUB_DISABLE: '0', NO_COLOR: '1' },
+    env: { ...process.env, AGY_HUD_CONFIG: join(cwd, 'absent.json'), AGY_HUD_DISABLE: '0', NO_COLOR: '1' },
     input: JSON.stringify({ ...payload, workspace: { current_dir: cwd } }), encoding: 'utf8',
   });
   assert.match(output, /git:\(hud-test\*\)/);

@@ -20,7 +20,7 @@ export function hookDefinitions() {
     const handler = { type: 'command', command: `${quote(process.execPath)} ${quote(cli)} hook ${event}`, timeout: 2 };
     return [event, event.endsWith('ToolUse') ? [{ matcher: '*', hooks: [handler] }] : [handler]];
   });
-  return { 'agy-hub': Object.fromEntries(definitions) };
+  return { 'agy-hud': Object.fromEntries(definitions) };
 }
 
 export function recordHook(event, input, directory = dataDir(), now = Date.now()) {

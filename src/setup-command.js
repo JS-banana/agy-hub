@@ -34,7 +34,7 @@ export async function runSetup(args) {
   const binding = configureOnly ? null : await diagnoseInstallation();
   const customStatusline = binding?.state === 'custom';
   const bindingBlocked = ['unsupported', 'unreadable', 'invalid-backup', 'too-large'].includes(binding?.state ?? '');
-  const blockedBindingMessage = 'AGY Hub cannot update this statusline. Run agy-hub doctor for details.';
+  const blockedBindingMessage = 'AGY HUD cannot update this statusline. Run agy-hud doctor for details.';
   if (bindingBlocked && !dryRun) throw new Error(blockedBindingMessage);
   const width = process.stdout.columns > 0 ? Math.min(110, process.stdout.columns) : 110;
   /** @param {import('./config-schema.js').HudConfig} config */
@@ -65,7 +65,7 @@ export async function runSetup(args) {
       !configureOnly && (bindingBlocked ? blockedBindingMessage
         : customStatusline
           ? values.replace ? 'The existing statusline would be saved for uninstall.' : 'A different statusline is configured. Add --replace only after approving its replacement.'
-          : 'AGY Hub would be enabled for new agy sessions.'),
+          : 'AGY HUD would be enabled for new agy sessions.'),
     ].filter((line) => line !== false).join('\n');
   }
 

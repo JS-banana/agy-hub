@@ -35,7 +35,7 @@ test('previews and confirms the chosen layout and feature toggles', async () => 
   assert.equal(config.display.showSessionName, true);
   assert.match(screen, /Expanded \(current\)/);
   assert.match(screen, /\[x\] Subagents/);
-  assert.match(screen, /\[candidate HUD\][\s\S]+replace your custom agy statusline[\s\S]+enable AGY Hub/);
+  assert.match(screen, /\[candidate HUD\][\s\S]+replace your custom agy statusline[\s\S]+enable AGY HUD/);
 });
 
 test('uses English prompts by default with an existing Chinese HUD', async () => {

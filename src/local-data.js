@@ -5,12 +5,13 @@ import { freemem, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { recordCosts as summarizeCosts } from './cost.js';
+import { env, withLegacy } from './legacy-name.js';
 import { isRecord } from './objects.js';
 import { readObject, writeObject } from './runtime/json-file.js';
 
 export { readObject, writeObject } from './runtime/json-file.js';
 
-export const dataDir = () => process.env.AGY_HUB_DATA_DIR || join(homedir(), '.gemini', 'antigravity-cli', 'agy-hub-data');
+export const dataDir = () => env('DATA_DIR') || withLegacy(join(homedir(), '.gemini', 'antigravity-cli', 'agy-hud-data'));
 const finite = (value) => Number.isFinite(value) && value >= 0;
 
 const execFileAsync = promisify(execFile);

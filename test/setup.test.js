@@ -9,10 +9,10 @@ import { diagnoseInstallation, install, printSettings, uninstall } from '../src/
 
 const posix = { skip: process.platform === 'win32' };
 const readSettings = async (path) => JSON.parse(await readFile(path, 'utf8'));
-const backup = (path) => `${path}.agy-hub-backup.json`;
+const backup = (path) => `${path}.agy-hud-backup.json`;
 
 async function temporaryDirectory(context) {
-  const directory = await mkdtemp(join(tmpdir(), 'agy-hub-setup-'));
+  const directory = await mkdtemp(join(tmpdir(), 'agy-hud-setup-'));
   context.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -45,7 +45,7 @@ test('install and uninstall preserve a previous status line and other settings',
   assert.equal(await readFile(backup(settingsPath), 'utf8'), journal);
 
   await writeFile(settingsPath, JSON.stringify({ ...installed, statusLine: { ...installed.statusLine, enabled: false }, telemetry: true }));
-  assert.match(await install({ settingsPath }), /Enabled AGY Hub/);
+  assert.match(await install({ settingsPath }), /Enabled AGY HUD/);
   assert.equal((await readSettings(settingsPath)).statusLine.enabled, true);
   assert.equal(await readFile(backup(settingsPath), 'utf8'), journal);
   await uninstall({ settingsPath });
@@ -54,7 +54,22 @@ test('install and uninstall preserve a previous status line and other settings',
   assert.match(await uninstall({ settingsPath }), /no saved installation/);
 });
 
-test('uninstall removes a settings file created solely for AGY Hub', posix, async (context) => {
+test('uninstall restores from a backup saved under the AGY Hub name', posix, async (context) => {
+  const settingsPath = join(await temporaryDirectory(context), 'settings.json');
+  const original = { statusLine: { type: 'command', command: 'old-hud' } };
+  await writeFile(settingsPath, JSON.stringify(original));
+  await install({ settingsPath });
+  const legacy = `${settingsPath}.agy-hub-backup.json`;
+  await writeFile(legacy, await readFile(backup(settingsPath)));
+  await unlink(backup(settingsPath));
+
+  assert.match(await install({ settingsPath }), /already configured/);
+  await uninstall({ settingsPath });
+  assert.deepEqual(await readSettings(settingsPath), original);
+  await assert.rejects(stat(legacy), { code: 'ENOENT' });
+});
+
+test('uninstall removes a settings file created solely for AGY HUD', posix, async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'nested', 'settings.json');
   assert.match(await uninstall({ settingsPath }), /no saved installation/);
   await install({ settingsPath });

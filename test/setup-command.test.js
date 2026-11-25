@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -12,16 +12,16 @@ const posix = { skip: process.platform === 'win32' };
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
 function workspace(t) {
-  const home = mkdtempSync(join(tmpdir(), 'agy-hub-guided-'));
+  const home = mkdtempSync(join(tmpdir(), 'agy-hud-guided-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, '.gemini', 'antigravity-cli');
   mkdirSync(directory, { recursive: true });
-  const config = join(directory, 'agy-hub.json');
+  const config = join(directory, 'agy-hud.json');
   return {
     config, settings: join(directory, 'settings.json'),
     run: (...args) => spawnSync(process.execPath, [cli, ...args], {
       encoding: 'utf8', timeout: 5000, input: '',
-      env: { ...process.env, HOME: home, AGY_HUB_CONFIG: config, AGY_HUB_DATA_DIR: join(home, 'data'), NO_COLOR: '1' },
+      env: { ...process.env, HOME: home, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(home, 'data'), NO_COLOR: '1' },
     }),
   };
 }
@@ -88,7 +88,7 @@ test('Agent setup requires separate approval for an existing statusline', posix,
 
 test('setup plans detect locked HUD preferences and invalid backups before enabling the binding', posix, (t) => {
   const { run, config, settings } = workspace(t);
-  const backup = `${settings}.agy-hub-backup.json`;
+  const backup = `${settings}.agy-hud-backup.json`;
   const original = { statusLine: { command: 'previous-hud' } };
   writeFileSync(settings, JSON.stringify(original));
   mkdirSync(`${config}.lock`);
@@ -137,18 +137,18 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   const path = run('skill', 'path').stdout.trim();
   assert.equal(run('skill', 'install').status, 0);
   const installed = readFileSync(path, 'utf8');
-  assert.match(installed, /name: agy-hub/);
+  assert.match(installed, /name: agy-hud/);
   assert.match(installed, /## Installed command/);
   assert.equal(run('skill', 'install').status, 0);
   assert.equal(run('skill', 'uninstall').status, 0);
   assert.equal(existsSync(path), false);
-  const bundled = new URL('../skills/agy-hub/SKILL.md', import.meta.url);
+  const bundled = new URL('../skills/agy-hud/SKILL.md', import.meta.url);
   writeFileSync(path, readFileSync(bundled));
   assert.match(run('skill', 'install').stdout, /Updated/);
   assert.equal(readFileSync(path, 'utf8'), installed);
-  const previous = '---\nname: agy-hub\ndescription: Old instructions\n---\n';
+  const previous = '---\nname: agy-hud\ndescription: Old instructions\n---\n';
   const digest = createHash('sha256').update(previous).digest('hex');
-  const previousInstall = `${previous}\n<!-- AGY Hub installed SHA-256: ${digest} -->\n`;
+  const previousInstall = `${previous}\n<!-- AGY HUD installed SHA-256: ${digest} -->\n`;
   writeFileSync(path, previousInstall);
   const upgraded = run('skill', 'install');
   assert.equal(upgraded.status, 0, upgraded.stderr);
@@ -160,4 +160,17 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   assert.equal(run('skill', 'uninstall').status, 1);
   assert.equal(readFileSync(path, 'utf8'), modified);
   assert.equal(existsSync(settings), false);
+});
+
+test('installing the skill retires a managed /agy-hub copy', posix, (t) => {
+  const { run } = workspace(t);
+  const path = run('skill', 'path').stdout.trim();
+  const legacy = join(dirname(dirname(path)), 'agy-hub', 'SKILL.md');
+  const body = '---\nname: agy-hub\ndescription: Old instructions\n---\n';
+  const digest = createHash('sha256').update(body).digest('hex');
+  mkdirSync(dirname(legacy), { recursive: true });
+  writeFileSync(legacy, `${body}\n<!-- AGY Hub installed SHA-256: ${digest} -->\n`);
+  assert.equal(run('skill', 'install').status, 0);
+  assert.equal(existsSync(legacy), false);
+  assert.match(readFileSync(path, 'utf8'), /name: agy-hud/);
 });

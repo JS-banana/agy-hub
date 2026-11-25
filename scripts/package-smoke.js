@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'));
-const sandbox = mkdtempSync(join(tmpdir(), 'agy-hub-package-'));
+const sandbox = mkdtempSync(join(tmpdir(), 'agy-hud-package-'));
 const home = join(sandbox, 'home');
 const stateDirectory = join(home, '.gemini', 'antigravity-cli');
 const settingsPath = join(stateDirectory, 'settings.json');
-const configPath = join(stateDirectory, 'agy-hub.json');
+const configPath = join(stateDirectory, 'agy-hud.json');
 const workspace = join(sandbox, 'private-smoke-workspace');
 const npmUserConfig = join(sandbox, 'npm-user.conf');
 const npmGlobalConfig = join(sandbox, 'npm-global.conf');
@@ -23,11 +23,11 @@ const env = {
   PATH: [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter),
   XDG_CONFIG_HOME: join(home, '.config'),
   XDG_CACHE_HOME: join(home, '.cache'),
-  AGY_HUB_CONFIG: configPath,
-  AGY_HUB_DATA_DIR: join(stateDirectory, 'agy-hub-data'),
+  AGY_HUD_CONFIG: configPath,
+  AGY_HUD_DATA_DIR: join(stateDirectory, 'agy-hud-data'),
   NO_COLOR: '1',
 };
-delete env.AGY_HUB_DISABLE;
+delete env.AGY_HUD_DISABLE;
 
 function run(executable, args, { input, allowFailure = false, cwd = sandbox } = {}) {
   const result = spawnSync(executable, args, {
@@ -56,7 +56,7 @@ function extractArchive(directory, archive) {
 
 function installedSkillCommand(cli, skill) {
   const contents = readFileSync(skill, 'utf8');
-  assert.match(contents, /name: agy-hub/);
+  assert.match(contents, /name: agy-hud/);
   const prefix = /^## Installed command\n\n    ([^\n]+)$/m.exec(contents)?.[1];
   assert.equal(prefix, JSON.parse(cli(['settings']).stdout).statusLine.command);
   return prefix;
@@ -82,8 +82,8 @@ try {
   const packedPaths = new Set(packed.files.map(({ path }) => path));
   for (const path of [
     'README.md', 'README.zh.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE',
-    'docs/configuration.md', 'docs/integration.md', 'docs/architecture.md', 'docs/assets/agy-hub-terminal-preview.png',
-    'src/cli.js', 'skills/agy-hub/SKILL.md',
+    'docs/configuration.md', 'docs/integration.md', 'docs/architecture.md', 'docs/assets/agy-hud-terminal-preview.png',
+    'src/cli.js', 'skills/agy-hud/SKILL.md',
   ]) {
     assert.ok(packedPaths.has(path), `The release archive must contain ${path}`);
   }
@@ -169,7 +169,7 @@ try {
 
   second(['uninstall']);
   assert.deepEqual(settings(), previousSettings, 'Uninstall must restore the pre-upgrade statusline and retain other settings');
-  assert.ok(!existsSync(`${settingsPath}.agy-hub-backup.json`));
+  assert.ok(!existsSync(`${settingsPath}.agy-hud-backup.json`));
   console.log('Extracted package verified through preview, config, skill registration, install, replay, rebind and uninstall.');
 } finally {
   rmSync(sandbox, { recursive: true, force: true });

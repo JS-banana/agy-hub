@@ -8,7 +8,7 @@ import { test } from 'node:test';
 
 const script = fileURLToPath(new URL('../scripts/release-notes.js', import.meta.url));
 const changelog = readFileSync(fileURLToPath(new URL('../CHANGELOG.md', import.meta.url)), 'utf8');
-const compare = 'https://github.com/JS-banana/agy-hub/compare/';
+const compare = 'https://github.com/JS-banana/agy-hud/compare/';
 
 const sample = [
   '# Changelog', '',
@@ -25,11 +25,11 @@ const sample = [
   '- Initial status line', '',
   `[Unreleased]: ${compare}v0.5.0...HEAD`,
   `[0.5.0]: ${compare}v0.4.0...v0.5.0`,
-  '[0.4.0]: https://github.com/JS-banana/agy-hub/releases/tag/v0.4.0',
+  '[0.4.0]: https://github.com/JS-banana/agy-hud/releases/tag/v0.4.0',
 ].join('\n');
 
 function releaseNotes(context, tag, text = sample) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hub-release-notes-')));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hud-release-notes-')));
   const file = join(dir, 'CHANGELOG.md');
   context.after(() => rmSync(dir, { force: true, recursive: true }));
   writeFileSync(file, text);
