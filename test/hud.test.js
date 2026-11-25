@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import fs, { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -341,7 +341,7 @@ test('reuses complete transcript bytes and expires running tools on cache hits',
   const frame = read(now);
   assert.deepEqual(frame, summarizeTranscript(base + suffix, 'idle', now));
   assert.deepEqual(frame.completed, [{ name: 'Grep', count: 2 }]);
-  assert.deepEqual(ranges.splice(0), [[0, start + Buffer.byteLength(suffix)]]);
+  assert.deepEqual(ranges.splice(0), [[0, start], [start, Buffer.byteLength(suffix)]]);
   const committed = start + Buffer.byteLength(done + '\n');
   const saved = readFileSync(cursor, 'utf8');
   assert.equal(JSON.parse(saved).offset, committed);
@@ -350,7 +350,7 @@ test('reuses complete transcript bytes and expires running tools on cache hits',
   assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done)]]);
   appendFileSync(file, '\n');
   assert.deepEqual(read(now), frame);
-  assert.deepEqual(ranges.splice(0), [[0, committed + Buffer.byteLength(done + '\n')]]);
+  assert.deepEqual(ranges.splice(0), [[0, committed], [committed, Buffer.byteLength(done + '\n')]]);
   assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, statSync(file).size);
   assert.deepEqual(read(now), frame);
   assert.deepEqual(ranges, []);
@@ -363,17 +363,25 @@ test('rebuilds the cursor after truncation, replacement or invalid cache data', 
   assert.equal(read().model, 'Original model');
   writeFileSync(file, line('New'));
   assert.equal(read().model, 'New');
-  // Keep the inode and rewrite to the same size, then past the saved offset.
+  // Keep the inode and rewrite to the same size (with distinct mtime on coarse clocks), then past the saved offset.
   const padding = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(8192) }) + '\n';
+  let tick = 1_700_000_000;
   for (const model of ['One', 'Two', 'Three']) {
     writeFileSync(file, padding + line(model) + padding);
+    tick += 1;
+    utimesSync(file, tick, tick);
     assert.equal(read().model, model);
   }
+  // Mutating the head while growing past the saved offset also invalidates via the head digest.
+  writeFileSync(file, line('HeadChanged') + padding + line('Three') + padding);
+  assert.equal(read().model, 'Three');
+  assert.equal(read().started, undefined);
   writeFileSync(file + '.new', line('Two'));
   renameSync(file + '.new', file);
   assert.equal(read().model, 'Two');
   const saved = JSON.parse(readFileSync(cursor, 'utf8'));
   for (const corrupt of ['{', JSON.stringify({ ...saved, version: 1 }), JSON.stringify({ ...saved, offset: -1 }),
+    JSON.stringify({ ...saved, head: 'not-a-digest' }), JSON.stringify({ ...saved, tail: 'not-a-digest' }),
     JSON.stringify({ ...saved, state: { ...saved.state, completed: { 'tools:Read': { name: 'Read', count: -2 } } } }),
     JSON.stringify({ ...saved, state: { ...saved.state, pending: Array(1025).fill(null) } }),
     ' '.repeat(256 * 1024) + '{}']) {
@@ -387,22 +395,60 @@ test('rebuilds the cursor after truncation, replacement or invalid cache data', 
   assert.equal(read().model, 'Two');
 });
 
-test('bounds transcript verification as a growing log moves beyond the cached range', (t) => {
+test('preserves history and bounds verification reads as a growing log exceeds 16 MiB', (t) => {
   const { file, cursor, read } = transcriptFixture(t);
+  const startIso = '2026-11-24T00:00:00.000Z';
+  const startMs = Date.parse(startIso);
   const block = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(4 * 1024 * 1024) }) + '\n';
-  const planner = (model) => JSON.stringify({ type: 'PLANNER_RESPONSE', model }) + '\n';
-  writeFileSync(file, planner('First') + block);
+  const initial = [
+    { type: 'PLANNER_RESPONSE', created_at: startIso, model: 'First', tool_calls: [{ name: 'read_file' }, { name: 'read_file' }] },
+    { type: 'GENERIC', status: 'DONE' },
+    { type: 'GENERIC', status: 'DONE' },
+  ].map((event) => JSON.stringify(event) + '\n').join('');
+  writeFileSync(file, initial + block);
+
+  const { ino } = statSync(file, { bigint: true });
+  const origReadSync = fs.readSync;
+  let bytesRead = 0;
+  const spy = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    const bytes = origReadSync(fd, buffer, offset, length, position);
+    if (fs.fstatSync(fd, { bigint: true }).ino === ino) bytesRead += bytes;
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+
   assert.equal(read().model, 'First');
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     appendFileSync(file, block);
-    assert.equal(read().model, 'First');
+    const frame = read();
+    assert.equal(frame.started, startMs);
+    assert.deepEqual(frame.completed, [{ name: 'Read', count: 2 }]);
   }
-  appendFileSync(file, block + planner('Latest'));
+  // File is now > 16 MiB. Appending one tool call must keep full history and read only <= 8 KiB + delta.
+  const extra = [
+    { type: 'PLANNER_RESPONSE', created_at: '2026-11-24T01:00:00.000Z', model: 'Latest', tool_calls: [{ name: 'read_file' }] },
+    { type: 'GENERIC', status: 'DONE' },
+  ].map((event) => JSON.stringify(event) + '\n').join('');
+  bytesRead = 0;
+  appendFileSync(file, extra);
+  const grown = read();
+  assert.equal(grown.model, 'Latest');
+  assert.equal(grown.started, startMs);
+  assert.deepEqual(grown.completed, [{ name: 'Read', count: 3 }]);
+  assert.ok(bytesRead <= 2 * 4096 + Buffer.byteLength(extra), `expected bounded incremental read, got ${bytesRead}`);
+
+  // A cold rebuild of an existing > 8 MiB file drops started (truncated) and still resumes incrementally afterwards.
+  rmSync(cursor);
+  const rebuilt = read();
+  assert.equal(rebuilt.model, 'Latest');
+  assert.equal(rebuilt.started, undefined);
+  assert.deepEqual(rebuilt.completed, [{ name: 'Read', count: 1 }]);
+  bytesRead = 0;
+  const tailAppend = '{}\n';
+  appendFileSync(file, tailAppend);
   assert.equal(read().model, 'Latest');
-  const saved = JSON.parse(readFileSync(cursor, 'utf8'));
-  assert.equal(saved.start, statSync(file).size - 8 * 1024 * 1024);
-  appendFileSync(file, '{}\n');
-  assert.equal(read().model, 'Latest');
+  assert.ok(bytesRead <= 2 * 4096 + Buffer.byteLength(tailAppend), `expected bounded read after truncated rebuild, got ${bytesRead}`);
 });
 
 test('resumes after an oversized partial line and a split UTF-8 append', (t) => {

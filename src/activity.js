@@ -10,6 +10,7 @@ import { labelText } from './terminal.js';
 import { nonnegative, timeValue, validConversation } from './state.js';
 
 const MAX_TAIL_BYTES = 8 * 1024 * 1024;
+const SAMPLE_BYTES = 4 * 1024;
 const CURSOR_BYTES = 256 * 1024;
 const MAX_CACHED_TOOLS = 1024;
 const TOOL_NAME = /^[\w.:-]{1,128}$/;
@@ -25,7 +26,8 @@ const PATH_TOOLS = new Set(['Read', 'Edit', 'Write']);
 /** @typedef {{pending: (ToolCall | null)[], running: {call: ToolCall, observed: number | null}[],
  *  completed: Record<string, CompletedTool>, started: number | null, lastReply: number | null,
  *  replyTokens: number | null, model: string}} TranscriptState */
-/** @typedef {{version: 2, dev: string, ino: string, stamp: string, start: number, offset: number, digest: string, state: TranscriptState}} Cursor */
+/** @typedef {{version: 2, dev: string, ino: string, stamp: string, offset: number, truncated: boolean,
+ *  head: string, tail: string, state: TranscriptState}} Cursor */
 
 /** @param {unknown} call @returns {ToolCall | null} */
 export function toolCall(call) {
@@ -129,12 +131,17 @@ const validName = (tool) => tool.kind === 'skills' ? validLabel(tool.name)
 const validCall = (call) => isRecord(call) && validName(call) && validLabel(call.target)
   && Object.keys(call).length === (call.kind ? 3 : 2);
 
+/** @param {Buffer} buffer */
+const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
+/** @param {unknown} value */
+const validDigest = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
 /** @param {unknown} cache @param {import('node:fs').BigIntStats} info @returns {cache is Cursor} */
 function validCache(cache, info) {
   if (!isRecord(cache) || cache.version !== 2 || cache.dev !== String(info.dev) || cache.ino !== String(info.ino)
-    || typeof cache.start !== 'number' || !Number.isSafeInteger(cache.start) || cache.start < 0
-    || typeof cache.offset !== 'number' || !Number.isSafeInteger(cache.offset) || cache.offset < cache.start
-    || typeof cache.stamp !== 'string' || typeof cache.digest !== 'string' || !/^[a-f0-9]{64}$/.test(cache.digest)
+    || typeof cache.offset !== 'number' || !Number.isSafeInteger(cache.offset) || cache.offset < 0
+    || typeof cache.truncated !== 'boolean' || typeof cache.stamp !== 'string'
+    || !validDigest(cache.head) || !validDigest(cache.tail)
     || !isRecord(cache.state)) return false;
   const state = cache.state;
   if (Object.keys(state).length !== Object.keys(emptyState()).length
@@ -175,43 +182,66 @@ function readTranscript(fd, info, cursorPath, agentState, now) {
   if (cursor?.stamp === stamp) {
     const remaining = Number(info.size - BigInt(cursor.offset));
     if (remaining) applyLines(cursor.state, readRange(fd, BigInt(cursor.offset), remaining).toString('utf8'));
-    return summary(cursor.state, agentState, now, cursor.start > 0);
+    return summary(cursor.state, agentState, now, cursor.truncated);
   }
+  // A changed stat stamp at the same size is a rewrite rather than an append.
+  if (cursor && info.size === BigInt(cursor.offset)) cursor = null;
 
-  // A larger file on the same inode can be a rewrite. Verify every byte that
-  // contributed to the cached state before parsing the append. Allow a rebuilt
-  // 8 MiB tail to grow by another 8 MiB before rebasing the verification range.
-  const tailStart = info.size > MAX_TAIL_BYTES ? info.size - BigInt(MAX_TAIL_BYTES) : 0n;
-  if (cursor && (cursor.start > tailStart || info.size - BigInt(cursor.start) > 2 * MAX_TAIL_BYTES)) cursor = null;
-  let start = cursor ? BigInt(cursor.start) : tailStart;
-  let buffer = readRange(fd, start, Number(info.size - start));
-  let hash = createHash('sha256');
-  if (cursor) {
-    const committed = cursor.offset - cursor.start;
-    hash.update(buffer.subarray(0, committed));
-    if (hash.copy().digest('hex') === cursor.digest) {
-      buffer = buffer.subarray(committed);
-    } else {
-      buffer = buffer.subarray(Number(tailStart - start));
-      start = tailStart;
+  // Verify fixed head and tail boundary digests (at most 8 KiB total) so
+  // growing logs stay O(delta) and keep full history without rebasing.
+  let headSample = Buffer.alloc(0);
+  let tailSample = Buffer.alloc(0);
+  if (cursor && cursor.offset > 0) {
+    const headLen = Math.min(cursor.offset, SAMPLE_BYTES);
+    headSample = readRange(fd, 0n, headLen);
+    if (sha256(headSample) !== cursor.head) {
       cursor = null;
-      hash = createHash('sha256');
+    } else {
+      const sampleStart = Math.max(0, cursor.offset - SAMPLE_BYTES);
+      tailSample = sampleStart === 0 && cursor.offset <= SAMPLE_BYTES
+        ? headSample
+        : readRange(fd, BigInt(sampleStart), cursor.offset - sampleStart);
+      if (sha256(tailSample) !== cursor.tail) cursor = null;
     }
   }
-  const truncated = start > 0n;
+
+  const tailStart = info.size > MAX_TAIL_BYTES ? info.size - BigInt(MAX_TAIL_BYTES) : 0n;
+  const start = cursor ? BigInt(cursor.offset) : tailStart;
+  const truncated = cursor ? cursor.truncated : start > 0n;
   const state = cursor?.state ?? emptyState();
+  const buffer = readRange(fd, start, Number(info.size - start));
   const end = buffer.lastIndexOf(0x0a) + 1;
   // A tail starting inside a line can only resume at its first newline.
   const begin = !cursor && truncated ? buffer.indexOf(0x0a) + 1 : 0;
   if (!cursor && truncated && !begin) return summary(state, agentState, now, truncated);
   if (end > begin) applyLines(state, buffer.toString('utf8', begin, end));
-  const offset = (cursor?.offset ?? Number(start)) + end;
+  const offset = Number(start + BigInt(end));
   if (Number.isSafeInteger(offset)
     && state.pending.length + state.running.length <= MAX_CACHED_TOOLS && Object.keys(state.completed).length <= MAX_CACHED_TOOLS) {
     try {
-      const digest = hash.update(buffer.subarray(0, end)).digest('hex');
+      const committed = buffer.subarray(0, end);
+      let head;
+      if (cursor) {
+        head = cursor.offset >= SAMPLE_BYTES ? cursor.head
+          : sha256(Buffer.concat([headSample, committed]).subarray(0, SAMPLE_BYTES));
+      } else if (start === 0n) {
+        head = sha256(committed.subarray(0, SAMPLE_BYTES));
+      } else {
+        head = sha256(readRange(fd, 0n, Math.min(offset, SAMPLE_BYTES)));
+      }
+      let tail;
+      if (end >= SAMPLE_BYTES) {
+        tail = sha256(committed.subarray(end - SAMPLE_BYTES, end));
+      } else if (cursor) {
+        tail = sha256(Buffer.concat([tailSample, committed]).subarray(-SAMPLE_BYTES));
+      } else if (start === 0n) {
+        tail = sha256(committed);
+      } else {
+        const tailPos = Math.max(0, offset - SAMPLE_BYTES);
+        tail = sha256(readRange(fd, BigInt(tailPos), offset - tailPos));
+      }
       writeObject(cursorPath, { version: 2, dev: String(info.dev), ino: String(info.ino), stamp,
-        start: Number(start), offset, digest, state }, CURSOR_BYTES);
+        offset, truncated, head, tail, state }, CURSOR_BYTES);
     } catch { /* Activity is available even if the cursor cannot be saved. */ }
   }
   if (end < buffer.length) {
