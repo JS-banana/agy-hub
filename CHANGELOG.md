@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `projectLineOrder` now accepts `"custom"` to place `display.customLine` anywhere on the project row (overriding `display.customLinePosition`).
 - `display.showEffortLevel` shows the Orchestrator's reasoning effort, read from the `orchestrator.planner` name in `agy` settings because `agy` omits it from the status line payload.
 - `display.agentStateFormat` (`"active"` by default) hides `idle` and shows a highlighted `◐ <state>` while busy; `"text"` keeps the previous `idle · auto` form. `colors.agent` (`"dim"` by default) sets the color of the agent state and mode.
 

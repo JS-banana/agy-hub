@@ -55,7 +55,7 @@ node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 | `forceMaxWidth` | `false` | Always use `maxWidth` even when the terminal is narrower |
 | `showSeparators` | `false` | Insert a horizontal divider before activity rows |
 | `elementOrder` | `["project","addedDirs","context","usage","promptCache","cacheHitRate","memory","environment","tools","skills","mcp","agents","sessionTime","tasks"]` | Row order in `expanded` mode. Valid entries also include `"sessionTokens"` and `"cost"`. Omitting entries hides them (except `sessionTokens`, which appends at the end when enabled). |
-| `projectLineOrder` | `[]` | Segment order on the project row (`"model"`, `"project"`, `"agent"`, `"sessionName"`, `"version"`, `"extra"`, `"duration"`, `"cost"`, `"speed"`, `"auth"`). Unlisted segments keep their relative order. |
+| `projectLineOrder` | `[]` | Segment order on the project row (`"model"`, `"project"`, `"agent"`, `"sessionName"`, `"version"`, `"extra"`, `"duration"`, `"cost"`, `"speed"`, `"auth"`, `"custom"`). Unlisted segments keep their relative order. Listing `"custom"` overrides `display.customLinePosition`. |
 
 ## Version control (`gitStatus` and `jjStatus`)
 
@@ -148,7 +148,7 @@ node src/cli.js config set '{"$schema":"./agy-hud.schema.json"}'
 | `showAddedDirs` | `true` | Show additional workspace directories |
 | `addedDirsLayout` | `"inline"` | `"inline"` next to project, or `"line"` on a separate row |
 | `customLine` | `""` | Custom text appended to or prepended on the project row |
-| `customLinePosition` | `"last"` | `"last"` or `"first"` |
+| `customLinePosition` | `"last"` | `"last"` or `"first"` (ignored when `"custom"` is listed in `projectLineOrder`) |
 | `showAgentState` | `false` | Show agent name, state, operating mode, and sandbox badge |
 | `showAgentModeOnly` | `false` | Show only the execution mode (`Auto mode` / `Plan mode`); overrides `showAgentState` |
 | `agentStateFormat` | `"active"` | `"active"` (hide when idle, show highlighted `◐ <state>` while busy) or `"text"` (always show state text including `idle`) |
