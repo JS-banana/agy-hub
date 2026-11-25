@@ -135,3 +135,7 @@ npm run check
 ```
 
 [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/architecture.md) · [MIT License](LICENSE)
+
+## Acknowledgements
+
+AGY Hub draws inspiration from [claude-hud](https://github.com/jarrodwatts/claude-hud). Thanks to its author and contributors.
