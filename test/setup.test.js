@@ -156,19 +156,6 @@ test('refuses changes that exceed the settings or backup limit before writing ei
   }
 });
 
-test('recovers a legacy installation that already crossed the write limit', posix, async (context) => {
-  const settingsPath = join(await temporaryDirectory(context), 'settings.json');
-  const original = JSON.stringify({ unrelated: 'x'.repeat(1024 * 1024 - 17) });
-  const current = JSON.parse(printSettings());
-  const oldSettings = JSON.stringify({ ...JSON.parse(original), ...current }, null, 2);
-  assert.ok(Buffer.byteLength(oldSettings) > 1024 * 1024);
-  await writeFile(settingsPath, oldSettings);
-  await writeFile(backup(settingsPath), JSON.stringify({ commands: [current.statusLine.command], createdSettings: false }));
-  await uninstall({ settingsPath });
-  assert.equal(await readFile(settingsPath, 'utf8'), `${original}\n`);
-  await assert.rejects(stat(backup(settingsPath)), { code: 'ENOENT' });
-});
-
 test('rebinds an extended command and restores the original statusline', posix, async (context) => {
   const directory = await temporaryDirectory(context);
   const settingsPath = join(directory, 'settings.json');

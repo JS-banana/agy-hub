@@ -16,8 +16,6 @@ import { readTextFile } from './runtime/text-file.js';
 
 export const settingsPath = () => join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
 const SETTINGS_BYTES = 1024 * 1024;
-// Older versions could write settings or backups beyond their own read limit.
-const RECOVERY_BYTES = 4 * SETTINGS_BYTES;
 const entryPoint = fileURLToPath(new URL('./cli.js', import.meta.url));
 
 function requirePosix() {
@@ -48,7 +46,7 @@ export function printSettings(options) {
 
 /** @param {string} path @returns {JsonFile | null} */
 function readJson(path) {
-  const file = readTextFile(path, RECOVERY_BYTES);
+  const file = readTextFile(path, SETTINGS_BYTES);
   if (!file) return null;
   let value;
   try {
@@ -61,13 +59,9 @@ function readJson(path) {
 }
 
 /** @param {string} path @param {unknown} value */
-function serialize(path, value, restoring = false) {
+function serialize(path, value) {
   const text = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(text) <= SETTINGS_BYTES) return text;
-  if (restoring) {
-    const compact = `${JSON.stringify(value)}\n`;
-    if (Buffer.byteLength(compact) <= SETTINGS_BYTES) return compact;
-  }
   throw new RangeError(`Writing ${path} would exceed ${SETTINGS_BYTES} bytes.`);
 }
 
@@ -137,7 +131,7 @@ function readBackup(path) {
 
 /** @param {string} path @param {string | undefined} text */
 function verifyUnchanged(path, text) {
-  if (readTextFile(path, RECOVERY_BYTES)?.text !== text) {
+  if (readTextFile(path, SETTINGS_BYTES)?.text !== text) {
     throw new Error(`Antigravity settings changed during setup. Retry using the latest ${path}.`);
   }
 }
@@ -182,7 +176,7 @@ function planInstall(path, backupPath, original, backup, options) {
 
 /** @param {string} path @param {string} text @param {BackupFile | null} original */
 async function restoreBackup(path, text, original) {
-  const current = readTextFile(path, RECOVERY_BYTES);
+  const current = readTextFile(path, SETTINGS_BYTES);
   if (current?.text !== text) throw new Error(`Backup changed during setup: ${path}.`);
   if (original) await replaceText(path, original.text, current, original.mode);
   else await unlink(path);
@@ -231,7 +225,7 @@ export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
         verifyUnchanged(path, original?.text);
         await unlink(path);
       } else {
-        await replaceText(path, serialize(path, settings, true), original);
+        await replaceText(path, serialize(path, settings), original);
       }
     } else if (!isDeepStrictEqual(settings.statusLine, backup.value.previous)) {
       return `The status line command was changed after installation. The prior settings are saved in ${backupPath}.`;

@@ -53,6 +53,10 @@ test('preset preview is independent of an existing configuration', (t) => {
     env: { ...process.env, AGY_HUD_CONFIG: config }, encoding: 'utf8',
   });
   assert.match(preview, /^\[Gemini [^\n]+\nContext /);
+  const resolved = execFileSync(process.execPath, [cli, 'config', 'path'], {
+    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: '' }, encoding: 'utf8',
+  }).trim();
+  assert.equal(resolved, join(root, '.gemini', 'antigravity-cli', 'agy-hud.json'));
 });
 
 test('a partial replay file is a cache miss in diagnostics', (t) => {

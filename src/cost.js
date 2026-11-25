@@ -10,8 +10,7 @@ const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 
 const GROUPS = ['argon', 'gemini', '3p'];
 const THREE_WEEKS = 3 * WEEK;
 const ARCHIVE_EVENTS = 512;
-// Older releases could write more than their general JSON reader could reopen.
-const LEDGER_BYTES = 8 * 1024 * 1024;
+const LEDGER_BYTES = 256 * 1024;
 const ARCHIVE_BYTES = 128 * 1024;
 
 /** @typedef {import('./state.js').HudState} HudState */
@@ -43,9 +42,6 @@ function readLedger(file) {
   if (!data) return null;
   if (!finite(data.total)) throw new Error('Invalid cumulative cost.');
   const events = costEvents(data.events);
-  if (data.archives === undefined && data.nextArchive === undefined) {
-    return { total: data.total, events, archives: [], nextArchive: 0 };
-  }
   if (!Array.isArray(data.archives) || !archiveId(data.nextArchive)) throw new Error('Invalid cost archives.');
   /** @type {CostArchive[]} */
   const archives = [];
