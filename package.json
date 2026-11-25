@@ -1,6 +1,6 @@
 {
   "name": "agy-hud",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A configurable status line for Antigravity CLI",
   "repository": {
     "type": "git",
