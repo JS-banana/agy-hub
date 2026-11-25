@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -160,17 +160,4 @@ test('local Agent skill is installable and preserves a modified copy', posix, (t
   assert.equal(run('skill', 'uninstall').status, 1);
   assert.equal(readFileSync(path, 'utf8'), modified);
   assert.equal(existsSync(settings), false);
-});
-
-test('installing the skill retires a managed /agy-hub copy', posix, (t) => {
-  const { run } = workspace(t);
-  const path = run('skill', 'path').stdout.trim();
-  const legacy = join(dirname(dirname(path)), 'agy-hub', 'SKILL.md');
-  const body = '---\nname: agy-hub\ndescription: Old instructions\n---\n';
-  const digest = createHash('sha256').update(body).digest('hex');
-  mkdirSync(dirname(legacy), { recursive: true });
-  writeFileSync(legacy, `${body}\n<!-- AGY Hub installed SHA-256: ${digest} -->\n`);
-  assert.equal(run('skill', 'install').status, 0);
-  assert.equal(existsSync(legacy), false);
-  assert.match(readFileSync(path, 'utf8'), /name: agy-hud/);
 });

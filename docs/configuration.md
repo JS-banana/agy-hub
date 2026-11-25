@@ -195,6 +195,4 @@ Color keys accept standard ANSI color names (`black`, `red`, `green`, `yellow`, 
 | `AGY_HUD_ALLOW_EXTRA_CMD=1` | Allow `--extra-cmd '<command>'` to append its first output line to the HUD |
 | `NO_COLOR=1` | Disable ANSI colors in HUD and preview output |
 
-The `AGY_HUB_*` names, `agy-hub.json`, and `agy-hub-data/` from releases before the AGY HUD rename are still read when the new name is absent.
-
 See [Antigravity integration](integration.md) for data sources, API cost estimation rates, and optional hooks, or [Architecture](architecture.md) for module boundaries.

@@ -54,21 +54,6 @@ test('install and uninstall preserve a previous status line and other settings',
   assert.match(await uninstall({ settingsPath }), /no saved installation/);
 });
 
-test('uninstall restores from a backup saved under the AGY Hub name', posix, async (context) => {
-  const settingsPath = join(await temporaryDirectory(context), 'settings.json');
-  const original = { statusLine: { type: 'command', command: 'old-hud' } };
-  await writeFile(settingsPath, JSON.stringify(original));
-  await install({ settingsPath });
-  const legacy = `${settingsPath}.agy-hub-backup.json`;
-  await writeFile(legacy, await readFile(backup(settingsPath)));
-  await unlink(backup(settingsPath));
-
-  assert.match(await install({ settingsPath }), /already configured/);
-  await uninstall({ settingsPath });
-  assert.deepEqual(await readSettings(settingsPath), original);
-  await assert.rejects(stat(legacy), { code: 'ENOENT' });
-});
-
 test('uninstall removes a settings file created solely for AGY HUD', posix, async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'nested', 'settings.json');
   assert.match(await uninstall({ settingsPath }), /no saved installation/);

@@ -7,17 +7,14 @@ import { readTextFile } from './runtime/text-file.js';
 import { cliCommand } from './setup.js';
 
 const bundledSkill = new URL('../skills/agy-hud/SKILL.md', import.meta.url);
-// Releases up to 0.5.0 installed the skill as AGY Hub at /agy-hub.
-const fingerprint = /\n<!-- AGY H(?:UD|ub) installed SHA-256: ([a-f0-9]{64}) -->\n$/;
-// Version 0.4.0 copied the bundled file verbatim.
-const legacyFingerprint = 'f2a8409de6742bf922fb617a47e510ae1ccbcbd307aa357f0821b2e2bc6e5abb';
+const fingerprint = /\n<!-- AGY HUD installed SHA-256: ([a-f0-9]{64}) -->\n$/;
 
 /** @param {string} text */
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
 /** @param {string} installed @param {string} bundled */
 function isManaged(installed, bundled) {
-  if (installed === bundled || digest(installed) === legacyFingerprint) return true;
+  if (installed === bundled) return true;
   const marker = fingerprint.exec(installed);
   return marker !== null && digest(installed.slice(0, marker.index)) === marker[1];
 }
@@ -35,8 +32,7 @@ async function readInstalled(path) {
 
 /** @param {string} action */
 export async function manageSkill(action, home = homedir()) {
-  const skills = join(home, '.gemini', 'antigravity-cli', 'skills');
-  const path = join(skills, 'agy-hud', 'SKILL.md');
+  const path = join(home, '.gemini', 'antigravity-cli', 'skills', 'agy-hud', 'SKILL.md');
   if (action === 'path') return path;
   if (action !== 'install' && action !== 'uninstall') throw new Error('Use agy-hud skill install, uninstall, or path.');
   const content = await readFile(bundledSkill, 'utf8');
@@ -47,15 +43,11 @@ export async function manageSkill(action, home = homedir()) {
   if (existing !== null && !isManaged(existing, content)) {
     throw new Error(`The existing skill at ${path} is custom or modified. AGY HUD left it in place.`);
   }
-  const legacyPath = join(skills, 'agy-hub', 'SKILL.md');
-  const legacy = await readInstalled(legacyPath).catch(() => null);
-  // Both install and uninstall retire a managed /agy-hub copy so only one slash command remains.
-  const removedLegacy = legacy !== null && isManaged(legacy, content) && await unlink(legacyPath).then(() => true);
   async function verifySkill() {
     if (await readInstalled(path) !== existing) throw new Error(`The skill at ${path} changed during setup. Try again.`);
   }
   if (action === 'uninstall') {
-    if (existing === null) return removedLegacy ? 'Removed the /agy-hub skill. Open a new agy session to reload skills.' : 'The /agy-hud skill is not installed.';
+    if (existing === null) return 'The /agy-hud skill is not installed.';
     await verifySkill();
     await unlink(path);
     return 'Removed the /agy-hud skill. Open a new agy session to reload skills.';

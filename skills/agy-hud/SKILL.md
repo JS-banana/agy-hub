@@ -5,7 +5,7 @@ description: Set up, preview, adjust, or troubleshoot the AGY HUD terminal statu
 
 ## Find the local CLI
 
-Use the command prefix in **Installed command** below if it is available. Otherwise use `node` with the absolute path to `src/cli.js` from a known AGY HUD checkout or extracted release. Check the current AGY HUD checkout and `$HOME/.local/share/agy-hud` (or `$HOME/.local/share/agy-hub` from before the rename). Use an absolute path so commands work from the user's current project without changing directories.
+Use the command prefix in **Installed command** below if it is available. Otherwise use `node` with the absolute path to `src/cli.js` from a known AGY HUD checkout or extracted release. Check the current AGY HUD checkout and `$HOME/.local/share/agy-hud`. Use an absolute path so commands work from the user's current project without changing directories.
 
 If the user asks to install AGY HUD and no local copy is available, check that Node.js 22+ and Git are available. Clone [the AGY HUD repository](https://github.com/JS-banana/agy-hud) into `$HOME/.local/share/agy-hud` and run the local CLI:
 
