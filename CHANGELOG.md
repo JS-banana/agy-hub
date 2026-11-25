@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-25
+
 ### Changed
 
-- Faster status line refreshes reuse a per-conversation transcript cursor and run VCS, memory, and extra-command probes concurrently
+- Faster status line refreshes reuse a per-conversation transcript cursor with bounded boundary verification and run VCS, memory, and extra-command probes concurrently
 
 ### Fixed
 
-- Quota windows expire at their known reset time, so stale limit notices no longer hide valid weekly quotas and fresh external snapshots can replace expired native windows
+- Quota windows expire at their known reset time, discarding pre-reset external snapshots while preserving valid sibling windows and allowing fresh snapshots to replace expired native windows
+- Extra-command probes ignore `stderr` so noisy diagnostic output no longer drops valid `stdout` labels
 
 ## [0.4.0] - 2026-11-24
 
@@ -27,5 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Guided `setup` wizard and the `init`, `config`, `install`, `uninstall`, `doctor`, `report`, `preview`, and `hooks` commands, with automatic backup and restore of an existing status line
 - JSON Schema for editor validation and an installable `agy-hub` Agent skill for plain-language configuration
 
-[Unreleased]: https://github.com/JS-banana/agy-hub/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/JS-banana/agy-hub/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/JS-banana/agy-hub/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/JS-banana/agy-hub/releases/tag/v0.4.0
