@@ -24,10 +24,10 @@ Setup locks the Antigravity settings and checks the planned writes before saving
 
 ## Module boundaries
 
-- [`src/cli.js`](../src/cli.js) handles the command interface. [`src/runtime/statusline.js`](../src/runtime/statusline.js) collects data for each status line invocation.
-- [`src/state.js`](../src/state.js) normalizes untrusted Antigravity JSON and preserves missing fields. File and stdin reads are size-limited.
-- [`src/render.js`](../src/render.js) assembles frames. The [layout module](../src/render/layout.js) handles width and row grouping, and the [project module](../src/render/project.js) renders project and version control information. [`src/pricing.js`](../src/pricing.js) computes the session cost fallback locally.
-- The runtime reads Git, logs, hooks, costs, and previews. [`src/runtime/json-file.js`](../src/runtime/json-file.js) provides bounded JSON reads and atomic writes. [`src/cost.js`](../src/cost.js) maintains the cost ledger and archive. A dependency test checks that modules reachable from the renderer import no I/O dependencies.
+- [`src/cli.js`](../src/cli.js) handles the command interface. [`src/runtime/statusline.js`](../src/runtime/statusline.js) runs the enabled VCS, memory, and extra-command probes concurrently with transcript and hook activity collection. [`src/activity.js`](../src/activity.js) reuses a per-conversation transcript cursor to resume after the last complete line.
+- [`src/state.js`](../src/state.js) normalizes untrusted Antigravity JSON and preserves missing fields. [`src/metrics.js`](../src/metrics.js) derives display metrics, and [`src/render.js`](../src/render.js) assembles frames. All three are I/O-free. A dependency test enforces this boundary.
+- The [layout module](../src/render/layout.js) handles width and row grouping, and the [project module](../src/render/project.js) renders project and version control information. [`src/pricing.js`](../src/pricing.js) computes the session cost fallback locally.
+- The runtime limits stdin size and handles local costs and previews. [`src/runtime/json-file.js`](../src/runtime/json-file.js) provides bounded JSON reads and atomic writes. [`src/cost.js`](../src/cost.js) maintains the cost ledger and archive.
 
 ## Verification
 

@@ -63,8 +63,9 @@ function readLedger(file) {
 /** @param {HudState} state @param {Display['weeklyCostPeriod']} period @param {number} day */
 function weeklyStart(state, period, day) {
   if (period === 'quota') {
-    const reset = state.quota.weekly?.reset ?? 0;
-    return reset > 0 && reset <= WEEK ? state.now + reset - WEEK : null;
+    const { weekly } = state.quota;
+    return weekly && !weekly.expired && weekly.reset > 0 && weekly.reset <= WEEK
+      ? state.now + weekly.reset - WEEK : null;
   }
   const start = new Date(day);
   start.setDate(start.getDate() - (start.getDay() - DAYS.indexOf(period) + 7) % 7);

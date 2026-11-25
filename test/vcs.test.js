@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { ChildProcess, execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
-import { gitStatus } from '../src/git.js';
+import { gitStatus, gitStatusAsync } from '../src/git.js';
 
 const gitOptions = { showFileStats: true, showWorktree: true, showDirty: true };
 const gitAvailable = process.platform !== 'win32' && spawnSync('git', ['--version']).status === 0;
@@ -25,7 +25,26 @@ function init(cwd) {
   git(cwd, 'init', '--initial-branch=main', '--template=');
 }
 
-test('Git combines index and worktree stats, with rename, binary and nested untracked files', { skip: !gitAvailable }, (context) => {
+async function statusFromBoth(cwd, options, vcs, jjOptions) {
+  const status = gitStatus(cwd, options, vcs, jjOptions);
+  assert.deepEqual(await gitStatusAsync(cwd, options, vcs, jjOptions), status);
+  return status;
+}
+
+test('a missing Git binary resolves to null and cancels the probe timeout', { skip: process.platform === 'win32' }, async (context) => {
+  const cwd = temp(context);
+  const env = process.env;
+  context.after(() => { process.env = env; });
+  process.env = { ...env, PATH: cwd };
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const kill = context.mock.method(ChildProcess.prototype, 'kill');
+
+  assert.equal(await gitStatusAsync(cwd), null);
+  context.mock.timers.runAll();
+  assert.equal(kill.mock.callCount(), 0);
+});
+
+test('Git combines index and worktree stats, with rename, binary and nested untracked files', { skip: !gitAvailable }, async (context) => {
   const root = temp(context);
   init(root);
   mkdirSync(join(root, 'nested'));
@@ -51,7 +70,7 @@ test('Git combines index and worktree stats, with rename, binary and nested untr
   writeFileSync(join(root, 'scratch', 'two'), '2');
 
   const index = readFileSync(join(root, '.git', 'index'));
-  const status = gitStatus(join(root, 'nested'), gitOptions, 'git');
+  const status = await statusFromBoth(join(root, 'nested'), gitOptions, 'git');
   assert.equal(status.root, root);
   assert.equal(status.branch, 'main');
   assert.equal(status.dirty, true);
@@ -69,13 +88,13 @@ test('Git combines index and worktree stats, with rename, binary and nested untr
   assert.deepEqual(readFileSync(join(root, '.git', 'index')), index);
 });
 
-test('Git caps listed files while keeping the complete counts in an unborn branch', { skip: !gitAvailable }, (context) => {
+test('Git caps listed files while keeping the complete counts in an unborn branch', { skip: !gitAvailable }, async (context) => {
   const root = temp(context);
   init(root);
   for (let index = 0; index < 9; index++) writeFileSync(join(root, `change-${index}`), 'new\n');
   git(root, 'add', '.');
 
-  const status = gitStatus(root, gitOptions);
+  const status = await statusFromBoth(root, gitOptions);
   assert.equal(status.branch, 'main');
   assert.equal(status.fileStats.added, 9);
   assert.equal(status.fileStats.trackedFiles.length, 6);
@@ -83,7 +102,32 @@ test('Git caps listed files while keeping the complete counts in an unborn branc
   assert.deepEqual(status.lineDiff, { added: 9, deleted: 0 });
 });
 
-test('Git detects linked worktrees and names a detached head only for an exact tag', { skip: !gitAvailable }, (context) => {
+test('Git counts commits on both sides of a diverged upstream branch', { skip: !gitAvailable }, async (context) => {
+  const cwd = temp(context);
+  init(cwd);
+  git(cwd, 'commit', '--allow-empty', '-m', 'Base');
+  git(cwd, 'checkout', '-b', 'upstream');
+  git(cwd, 'commit', '--allow-empty', '-m', 'Upstream');
+  git(cwd, 'checkout', 'main');
+  git(cwd, 'branch', '--set-upstream-to=upstream');
+  git(cwd, 'commit', '--allow-empty', '-m', 'Local');
+
+  assert.deepEqual(await statusFromBoth(cwd, { showAheadBehind: true }),
+    { branch: 'main', dirty: false, ahead: 1, behind: 1 });
+});
+
+test('Git falls back to the branch when status output exceeds its byte limit', { skip: !gitAvailable }, async (context) => {
+  const cwd = temp(context);
+  init(cwd);
+  const blob = git(cwd, 'hash-object', '-w', '--stdin');
+  const prefix = 'x'.repeat(200);
+  const entries = Array.from({ length: 1400 }, (_, index) => `100644 ${blob}\t${prefix}${index}\n`).join('');
+  execFileSync('git', ['-C', cwd, 'update-index', '--index-info'], { input: entries });
+
+  assert.deepEqual(await statusFromBoth(cwd, gitOptions), { branch: 'main', dirty: false, ahead: 0, behind: 0 });
+});
+
+test('Git detects linked worktrees and names a detached head only for an exact tag', { skip: !gitAvailable }, async (context) => {
   const base = temp(context);
   const cwd = join(base, 'repo');
   const worktree = join(base, 'linked workspace');
@@ -94,17 +138,17 @@ test('Git detects linked worktrees and names a detached head only for an exact t
   git(cwd, 'commit', '--allow-empty', '-m', 'Next');
   git(cwd, 'worktree', 'add', '--detach', worktree, 'v1.0.0');
 
-  assert.equal(gitStatus(cwd, gitOptions).worktree, undefined);
-  const linked = gitStatus(worktree, gitOptions);
+  assert.equal((await statusFromBoth(cwd, gitOptions)).worktree, undefined);
+  const linked = await statusFromBoth(worktree, gitOptions);
   assert.equal(linked.worktree, basename(worktree));
   assert.equal(linked.branch, 'v1.0.0');
   assert.equal(linked.root, worktree);
-  assert.equal(gitStatus(worktree, {}).worktree, undefined);
+  assert.equal((await statusFromBoth(worktree, {})).worktree, undefined);
   git(worktree, 'checkout', '--detach', 'main');
-  assert.equal(gitStatus(worktree, gitOptions).branch, `detached:${git(cwd, 'rev-parse', 'HEAD').slice(0, 7)}`);
+  assert.equal((await statusFromBoth(worktree, gitOptions)).branch, `detached:${git(cwd, 'rev-parse', 'HEAD').slice(0, 7)}`);
 });
 
-test('Git reads status with checkout-configured clean, diff and textconv drivers disabled', { skip: !gitAvailable }, (context) => {
+test('Git reads status with checkout-configured clean, diff and textconv drivers disabled', { skip: !gitAvailable }, async (context) => {
   const cwd = temp(context);
   init(cwd);
   writeFileSync(join(cwd, '.gitattributes'), 'note.txt filter=test diff=test\n');
@@ -117,38 +161,39 @@ test('Git reads status with checkout-configured clean, diff and textconv drivers
   git(cwd, 'config', 'diff.test.textconv', 'false');
   writeFileSync(join(cwd, 'note.txt'), 'baseline\nchanged\n');
 
-  assert.deepEqual(gitStatus(cwd, gitOptions).lineDiff, { added: 1, deleted: 0 });
+  assert.deepEqual((await statusFromBoth(cwd, gitOptions)).lineDiff, { added: 1, deleted: 0 });
 });
 
-test('a jj checkout with local configuration falls back only to colocated Git', { skip: !gitAvailable }, (context) => {
+test('a jj checkout with local configuration falls back only to colocated Git', { skip: !gitAvailable }, async (context) => {
   const cwd = temp(context);
   const checkout = join(cwd, 'workspace');
   mkdirSync(join(checkout, '.jj', 'repo'), { recursive: true });
   writeFileSync(join(checkout, '.jj', 'repo', 'config.toml'), '[ui]\npager = "none"\n');
   init(cwd);
-  assert.equal(gitStatus(checkout, {}, 'jj', { enabled: true }), null);
+  assert.equal(await statusFromBoth(checkout, {}, 'jj', { enabled: true }), null);
   init(checkout);
-  assert.deepEqual(gitStatus(checkout, {}, 'jj', { enabled: true }), { branch: 'main', dirty: false, ahead: 0, behind: 0 });
+  assert.deepEqual(await statusFromBoth(checkout, {}, 'jj', { enabled: true }), { branch: 'main', dirty: false, ahead: 0, behind: 0 });
 });
 
-test('Jujutsu shows a bookmark, recorded changes and conflicts without snapshotting the working copy', { skip: !jjAvailable }, (context) => {
+test('Jujutsu shows a bookmark, recorded changes and conflicts without snapshotting the working copy', { skip: !jjAvailable }, async (context) => {
   const cwd = temp(context);
   const env = { ...process.env, JJ_CONFIG: '', JJ_USER: 'AGY Hub Tests', JJ_EMAIL: 'test@example.invalid', XDG_CONFIG_HOME: cwd };
   const jj = (...args) => execFileSync('jj', args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   jj('git', 'init', '--no-colocate');
-  const status = () => gitStatus(cwd, { enabled: false }, 'jj', { enabled: true });
+  const status = () => statusFromBoth(cwd, { enabled: false }, 'jj', { enabled: true });
 
-  assert.match(status().branch, /^[a-z]{8,}$/);
-  assert.equal(status().dirty, false);
+  const initial = await status();
+  assert.match(initial.branch, /^[a-z]{8,}$/);
+  assert.equal(initial.dirty, false);
   writeFileSync(join(cwd, 'tracked.txt'), 'base\n');
-  assert.equal(status().dirty, false);
+  assert.equal((await status()).dirty, false);
   jj('bookmark', 'create', 'hud-bookmark', '-r', '@');
-  assert.deepEqual(status(), { branch: 'hud-bookmark', dirty: true, ahead: 0, behind: 0, vcs: 'jj', conflict: false });
+  assert.deepEqual(await status(), { branch: 'hud-bookmark', dirty: true, ahead: 0, behind: 0, vcs: 'jj', conflict: false });
   jj('new', '@');
   writeFileSync(join(cwd, 'tracked.txt'), 'left\n');
   const left = jj('log', '-r', '@', '--no-graph', '-T', 'change_id');
   jj('new', '@-');
   writeFileSync(join(cwd, 'tracked.txt'), 'right\n');
   jj('new', left, '@');
-  assert.equal(status().conflict, true);
+  assert.equal((await status()).conflict, true);
 });

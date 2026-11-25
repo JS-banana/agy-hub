@@ -1,7 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { freemem, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { recordCosts as summarizeCosts } from './cost.js';
 import { isRecord } from './objects.js';
 import { readObject, writeObject } from './runtime/json-file.js';
@@ -11,26 +13,39 @@ export { readObject, writeObject } from './runtime/json-file.js';
 export const dataDir = () => process.env.AGY_HUB_DATA_DIR || join(homedir(), '.gemini', 'antigravity-cli', 'agy-hub-data');
 const finite = (value) => Number.isFinite(value) && value >= 0;
 
-export function memoryUsage() {
+const execFileAsync = promisify(execFile);
+const vmStatOptions = { encoding: 'utf8', timeout: 120, maxBuffer: 16 * 1024 };
+
+function summarizeMemory(raw = '') {
   const total = totalmem();
   if (!total) return null;
   let used = total - freemem();
-  try {
-    if (process.platform === 'linux') {
-      const raw = readFileSync('/proc/meminfo', 'utf8');
-      const free = /^MemAvailable:\s+(\d+) kB/m.exec(raw);
-      if (free) used = total - Number(free[1]) * 1024;
-    } else if (process.platform === 'darwin') {
-      const raw = execFileSync('/usr/bin/vm_stat', { encoding: 'utf8', timeout: 120, maxBuffer: 16 * 1024 });
-      const page = /page size of (\d+) bytes/i.exec(raw);
-      const active = /^Pages active:\s+(\d+)/m.exec(raw);
-      const wired = /^Pages wired down:\s+(\d+)/m.exec(raw);
-      if (page && active && wired) used = Number(page[1]) * (Number(active[1]) + Number(wired[1]));
-    }
-  } catch {
-    // Fall back to the operating system's free-memory counter.
+  if (process.platform === 'linux') {
+    const free = /^MemAvailable:\s+(\d+) kB/m.exec(raw);
+    if (free) used = total - Number(free[1]) * 1024;
+  } else if (process.platform === 'darwin') {
+    const page = /page size of (\d+) bytes/i.exec(raw);
+    const active = /^Pages active:\s+(\d+)/m.exec(raw);
+    const wired = /^Pages wired down:\s+(\d+)/m.exec(raw);
+    if (page && active && wired) used = Number(page[1]) * (Number(active[1]) + Number(wired[1]));
   }
   return { total, used: Math.max(0, Math.min(total, used)) };
+}
+
+export function memoryUsage() {
+  try {
+    if (process.platform === 'linux') return summarizeMemory(readFileSync('/proc/meminfo', 'utf8'));
+    if (process.platform === 'darwin') return summarizeMemory(execFileSync('/usr/bin/vm_stat', vmStatOptions));
+  } catch { /* Fall back to the operating system's free-memory counter. */ }
+  return summarizeMemory();
+}
+
+export async function memoryUsageAsync() {
+  try {
+    if (process.platform === 'linux') return summarizeMemory(await readFile('/proc/meminfo', 'utf8'));
+    if (process.platform === 'darwin') return summarizeMemory((await execFileAsync('/usr/bin/vm_stat', vmStatOptions)).stdout);
+  } catch { /* Fall back to the operating system's free-memory counter. */ }
+  return summarizeMemory();
 }
 
 const MARKERS = ['.git', '.jj', '.hg'];
@@ -78,7 +93,6 @@ export function configCounts(state, home = homedir()) {
 }
 
 function snapshotWindow(window, time) {
-  if (!window) return null;
   return { used: window.used, amount: window.amount, exhausted: window.exhausted, observedAt: time,
     resetAt: window.resetAt ?? (window.reset !== 0 ? time + window.reset : 0) };
 }
@@ -90,6 +104,7 @@ function restoreWindow(window, now) {
   return {
     used, amount,
     exhausted: window.exhausted === true,
+    expired: false,
     reset: window.resetAt ? window.resetAt - now : 0,
   };
 }
@@ -99,42 +114,50 @@ export function externalQuota(state, display) {
   if (!quota.key) return quota;
   const filename = (path) => path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
   const keys = ['short', 'weekly'];
+  const active = (window) => Boolean(window && !window.expired);
   const disabled = (key) => quota.disabled?.includes(key);
+  const predatesReset = (time, key) => quota[key]?.expired && quota[key].resetAt !== undefined && time < quota[key].resetAt;
   const valid = (snapshot, key) => {
     const window = snapshot?.[key];
     const time = window?.observedAt ?? snapshot?.time;
     return snapshot?.version === 1 && snapshot.key === quota.key && !disabled(key)
       && isRecord(window) && finite(window.resetAt) && (window.resetAt === 0 || window.resetAt > now)
-      && finite(time) && time <= now && now - time <= display.externalUsageFreshnessMs;
+      && finite(time) && time <= now && now - time <= display.externalUsageFreshnessMs && !predatesReset(time, key);
   };
   const saved = display.externalUsagePath ? readObject(filename(display.externalUsagePath)) : null;
-  if ((quota.short || quota.weekly) && display.externalUsageWritePath) {
-    try {
-      const path = filename(display.externalUsageWritePath);
-      const before = readObject(path);
-      const windows = Object.fromEntries(keys.map((key) => [key, quota[key] ? snapshotWindow(quota[key], now)
-        : valid(before, key) ? { ...before[key], observedAt: before[key].observedAt ?? before.time } : null]));
-      if (before?.version !== 1 || before.key !== quota.key || !finite(before.time) || before.time > now || now - before.time >= 30_000 ||
-        keys.some((key) => {
-          const prior = before[key];
-          const next = windows[key];
-          return prior?.used !== next?.used || prior?.amount !== next?.amount || prior?.exhausted !== next?.exhausted
-            || (prior?.resetAt > now) !== (next?.resetAt > now);
-        })) {
-        writeObject(path, { version: 1, key: quota.key, time: now, scoped: quota.scoped === true, ...windows });
+  function publish(path) {
+    const before = readObject(path);
+    if (!keys.some((key) => active(quota[key]))) {
+      if (before?.version !== 1 || before.key !== quota.key) return;
+      const stale = keys.filter((key) => before[key] && predatesReset(before[key].observedAt ?? before.time, key));
+      if (stale.length) {
+        for (const key of stale) before[key] = null;
+        writeObject(path, before);
       }
-    } catch {
-      // Native quota remains available if writing a snapshot fails.
+      return;
     }
+    const windows = Object.fromEntries(keys.map((key) => [key, active(quota[key]) ? snapshotWindow(quota[key], now)
+      : valid(before, key) ? { ...before[key], observedAt: before[key].observedAt ?? before.time } : null]));
+    if (before?.version !== 1 || before.key !== quota.key || !finite(before.time) || before.time > now || now - before.time >= 30_000 ||
+      keys.some((key) => {
+        const prior = before[key];
+        const next = windows[key];
+        return prior?.used !== next?.used || prior?.amount !== next?.amount || prior?.exhausted !== next?.exhausted
+          || (next && !valid(before, key)) || (prior?.resetAt > now) !== (next?.resetAt > now);
+      })) {
+      writeObject(path, { version: 1, key: quota.key, time: now, scoped: quota.scoped === true, ...windows });
+    }
+  }
+  if (display.externalUsageWritePath && keys.some((key) => quota[key])) {
+    try { publish(filename(display.externalUsageWritePath)); } catch { /* Snapshots are best-effort. */ }
   }
   const merged = { ...quota };
   for (const key of keys) {
-    if (quota[key] || !valid(saved, key)) continue;
-    const window = restoreWindow(saved[key], now);
-    if (window) {
-      merged[key] = window;
-      if (saved.scoped === true) merged.scoped = true;
-    }
+    if (active(quota[key])) continue;
+    if (valid(saved, key)) {
+      merged[key] = restoreWindow(saved[key], now);
+      if (merged[key] && saved.scoped === true) merged.scoped = true;
+    } else if (quota[key]?.expired) merged[key] = null;
   }
   return merged;
 }

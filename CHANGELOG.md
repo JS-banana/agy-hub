@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Faster status line refreshes reuse a per-conversation transcript cursor and run VCS, memory, and extra-command probes concurrently
+
+### Fixed
+
+- Quota windows expire at their known reset time, so stale limit notices no longer hide valid weekly quotas and fresh external snapshots can replace expired native windows
+
 ## [0.4.0] - 2026-11-24
 
 ### Added

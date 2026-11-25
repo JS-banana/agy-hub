@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readConfig } from '../src/config.js';
+import { recordHook } from '../src/hooks.js';
 import { readInput } from '../src/runtime/input.js';
 
 test('stdin uses a byte limit and decodes UTF-8 across chunks', async () => {
@@ -68,4 +69,38 @@ test('a partial replay file is a cache miss in diagnostics', (t) => {
   assert.equal(report.capturedFrame, null);
   assert.equal('paths' in report, false);
   assert.doesNotMatch(output, /agy-hub-replay-/);
+});
+
+test('a timed-out extra command leaves memory and hook workspace counts in the frame', { skip: process.platform === 'win32' }, (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'agy-hub-probes-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cwd = join(root, 'project');
+  const shared = join(root, 'shared');
+  const data = join(root, 'data');
+  const config = join(root, 'config.json');
+  const conversationId = '12345678-abcd-ef01-2345-6789abcdef01';
+  mkdirSync(cwd);
+  mkdirSync(shared);
+  writeFileSync(join(shared, 'AGENTS.md'), 'Shared instructions');
+  writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display: { showConfigCounts: true, showMemoryUsage: true } }));
+  recordHook('SessionStart', { conversationId, workspacePaths: [cwd, shared] }, data);
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const run = (command, allow = '1') => execFileSync(process.execPath, [cli, '--extra-cmd', command], {
+    env: { ...process.env, HOME: root, AGY_HUB_CONFIG: config, AGY_HUB_DATA_DIR: data,
+      AGY_HUB_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUB_DISABLE: '0' },
+    input: JSON.stringify({ cwd, model: { display_name: 'Probes' }, conversation_id: conversationId }),
+    encoding: 'utf8', timeout: 2500,
+  });
+  const command = 'printf "extra-label\\nsecond line\\n"';
+  const labeled = run(command);
+  assert.match(labeled, /extra-label/);
+  assert.doesNotMatch(labeled, /second line/);
+  assert.match(run('head -c 5000 /dev/zero >&2; ' + command), /extra-label/);
+  assert.doesNotMatch(run(command + '; head -c 5000 /dev/zero'), /extra-label/);
+  assert.doesNotMatch(run(command, '0'), /extra-label/);
+  const frame = run(command + ' && exec sleep 5');
+  assert.doesNotMatch(frame, /extra-label/);
+  assert.match(frame, /\[Probes\]/);
+  assert.match(frame, /Approx RAM/);
+  assert.match(frame, /1 AGENTS\.md \/ GEMINI\.md/);
 });

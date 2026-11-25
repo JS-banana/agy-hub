@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -214,6 +215,44 @@ test('honors weekly thresholds and absolute reset times without hiding quota exh
   assert.match(render(normalizeState({ ...payload, quota }), normalizeConfig(), { color: false }), /Weekly ████████░░ 81%/);
 });
 
+test('distinguishes expired quota windows from unused windows and unknown reset times', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  for (const [bucket, expired] of [
+    [{ remaining_fraction: 1, reset_in_seconds: 0 }, false],
+    [{ remaining_fraction: 0.62 }, false],
+    [{ remaining_amount: 12, reset_in_seconds: 0 }, false],
+    [{ remaining_fraction: 0.5, reset_in_seconds: 0 }, true],
+    [{ remaining_fraction: 0.999, reset_in_seconds: 0 }, true],
+    [{ remaining_amount: 0, reset_in_seconds: 0 }, true],
+    [{ remaining_fraction: 1, reset_time: new Date(now).toISOString(), reset_in_seconds: 60 }, true],
+    [{ remaining_fraction: 0, reset_time: new Date(now + 1000).toISOString(), reset_in_seconds: 0 }, false],
+  ]) {
+    const state = normalizeState({ ...payload, quota: { 'gemini-5h': bucket } }, now);
+    assert.equal(state.quota.short.expired, expired, JSON.stringify(bucket));
+  }
+});
+
+test('renders only active quota windows in expanded and compact layouts', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  const past = new Date(now - 1000).toISOString();
+  const weekly = { remaining_fraction: 0.62, reset_in_seconds: 86_400 };
+  for (const [lineLayout, weeklyFrame] of [
+    ['expanded', '[Gemini Flash]\nUsage Weekly ████░░░░░░ 38% (resets in 1d)'],
+    ['compact', '[Gemini Flash] | Weekly ████░░░░░░ 38% (1d / 7d)'],
+  ]) {
+    const hud = (short, week, usageThreshold = 0) => {
+      const state = normalizeState({ model: payload.model, quota: { 'gemini-5h': short, 'gemini-weekly': week } }, now);
+      return render(state, normalizeConfig({ lineLayout, display: { usageThreshold } }), { color: false });
+    };
+    for (const remaining_fraction of [0.01, 0]) {
+      const short = { remaining_fraction, reset_time: past };
+      assert.equal(hud(short, weekly), weeklyFrame);
+      assert.equal(hud(short, weekly, 40), '[Gemini Flash]');
+      assert.equal(hud(short, { ...weekly, reset_time: past }), '[Gemini Flash]');
+    }
+  }
+});
+
 test('respects explicit context zero and never uses cumulative input as the context window', () => {
   assert.equal(normalizeState({ context_window: { used_percentage: 0, total_input_tokens: 20_000 } }).context.used, 0);
   assert.equal(normalizeState({ context_window: { context_window_size: 1000, total_input_tokens: 9000 } }).context, null);
@@ -254,6 +293,182 @@ test('pairs parallel calls and results, and reads only a conversation transcript
   writeFileSync(actualPath, events);
   assert.deepEqual(readActivity({ conversationId: id, transcriptPath, agentState: 'tool_use' }, home), expected);
   assert.equal(readActivity({ conversationId: '../../other', transcriptPath: actualPath }, home), null);
+});
+
+function transcriptFixture(t) {
+  const home = mkdtempSync(join(tmpdir(), 'agy-hub-transcript-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const conversationId = '12345678-abcd-ef01-2345-6789abcdef01';
+  const cli = join(home, '.gemini', 'antigravity-cli');
+  const file = join(cli, 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  mkdirSync(dirname(file), { recursive: true });
+  return { file, cursor: join(cli, 'agy-hub-data', 'transcript', `${conversationId}.json`),
+    read: (now, agentState = 'idle') => readActivity({ conversationId, now, agentState }, home) };
+}
+
+test('reuses complete transcript bytes and expires running tools on cache hits', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const now = Date.UTC(2026, 10, 24);
+  const planner = { type: 'PLANNER_RESPONSE', created_at: new Date(now).toISOString(), model: '模型',
+    tool_calls: [{ name: 'read_file' }, { name: 'grep_search' }, { name: 'grep_search' }] };
+  const base = [planner, { type: 'GENERIC', status: 'RUNNING', created_at: planner.created_at }]
+    .map((event) => JSON.stringify(event) + '\n').join('');
+  writeFileSync(file, base);
+
+  // Count only reads from the already-open transcript, excluding the cursor JSON.
+  const { ino } = statSync(file, { bigint: true });
+  const readSync = fs.readSync;
+  const ranges = [];
+  const spy = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    const bytes = readSync(fd, buffer, offset, length, position);
+    if (fs.fstatSync(fd, { bigint: true }).ino === ino) ranges.push([Number(position), bytes]);
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+
+  const start = Buffer.byteLength(base);
+  assert.deepEqual(read(now), summarizeTranscript(base, 'idle', now));
+  assert.deepEqual(ranges.splice(0), [[0, start]]);
+  assert.equal(read(now + 59_999).running[0].name, 'Read');
+  assert.deepEqual(read(now + 60_000).running, []);
+  assert.deepEqual(read(now + 60_000, 'tool_use').running.map(({ name }) => name), ['Read', 'Grep', 'Grep']);
+  assert.deepEqual(ranges, []);
+
+  const done = JSON.stringify({ type: 'GENERIC', status: 'DONE' });
+  const suffix = done + '\n' + done;
+  appendFileSync(file, suffix);
+  const frame = read(now);
+  assert.deepEqual(frame, summarizeTranscript(base + suffix, 'idle', now));
+  assert.deepEqual(frame.completed, [{ name: 'Grep', count: 2 }]);
+  assert.deepEqual(ranges.splice(0), [[0, start], [start, Buffer.byteLength(suffix)]]);
+  const committed = start + Buffer.byteLength(done + '\n');
+  const saved = readFileSync(cursor, 'utf8');
+  assert.equal(JSON.parse(saved).offset, committed);
+  assert.deepEqual(read(now), frame);
+  assert.equal(readFileSync(cursor, 'utf8'), saved);
+  assert.deepEqual(ranges.splice(0), [[committed, Buffer.byteLength(done)]]);
+  appendFileSync(file, '\n');
+  assert.deepEqual(read(now), frame);
+  assert.deepEqual(ranges.splice(0), [[0, committed], [committed, Buffer.byteLength(done + '\n')]]);
+  assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, statSync(file).size);
+  assert.deepEqual(read(now), frame);
+  assert.deepEqual(ranges, []);
+});
+
+test('rebuilds the cursor after truncation, replacement or invalid cache data', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const line = (model) => JSON.stringify({ type: 'PLANNER_RESPONSE', model }) + '\n';
+  writeFileSync(file, line('Original model'));
+  assert.equal(read().model, 'Original model');
+  writeFileSync(file, line('New'));
+  assert.equal(read().model, 'New');
+  // Keep the inode and rewrite to the same size (with distinct mtime on coarse clocks), then past the saved offset.
+  const padding = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(8192) }) + '\n';
+  let tick = 1_700_000_000;
+  for (const model of ['One', 'Two', 'Three']) {
+    writeFileSync(file, padding + line(model) + padding);
+    tick += 1;
+    utimesSync(file, tick, tick);
+    assert.equal(read().model, model);
+  }
+  // Mutating the head while growing past the saved offset also invalidates via the head digest.
+  writeFileSync(file, line('HeadChanged') + padding + line('Three') + padding);
+  assert.equal(read().model, 'Three');
+  assert.equal(read().started, undefined);
+  writeFileSync(file + '.new', line('Two'));
+  renameSync(file + '.new', file);
+  assert.equal(read().model, 'Two');
+  const saved = JSON.parse(readFileSync(cursor, 'utf8'));
+  for (const corrupt of ['{', JSON.stringify({ ...saved, version: 1 }), JSON.stringify({ ...saved, offset: -1 }),
+    JSON.stringify({ ...saved, head: 'not-a-digest' }), JSON.stringify({ ...saved, tail: 'not-a-digest' }),
+    JSON.stringify({ ...saved, state: { ...saved.state, completed: { 'tools:Read': { name: 'Read', count: -2 } } } }),
+    JSON.stringify({ ...saved, state: { ...saved.state, pending: Array(1025).fill(null) } }),
+    ' '.repeat(256 * 1024) + '{}']) {
+    writeFileSync(cursor, corrupt);
+    assert.deepEqual(read(), summarizeTranscript(line('Two'), 'idle'));
+    assert.deepEqual(JSON.parse(readFileSync(cursor, 'utf8')), saved);
+  }
+  // An unwritable cursor must still yield the transcript for this frame.
+  rmSync(cursor);
+  mkdirSync(cursor);
+  assert.equal(read().model, 'Two');
+});
+
+test('preserves history and bounds verification reads as a growing log exceeds 16 MiB', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const startIso = '2026-11-24T00:00:00.000Z';
+  const startMs = Date.parse(startIso);
+  const block = JSON.stringify({ type: 'USER_INPUT', text: 'x'.repeat(4 * 1024 * 1024) }) + '\n';
+  const initial = [
+    { type: 'PLANNER_RESPONSE', created_at: startIso, model: 'First', tool_calls: [{ name: 'read_file' }, { name: 'read_file' }] },
+    { type: 'GENERIC', status: 'DONE' },
+    { type: 'GENERIC', status: 'DONE' },
+  ].map((event) => JSON.stringify(event) + '\n').join('');
+  writeFileSync(file, initial + block);
+
+  const { ino } = statSync(file, { bigint: true });
+  const origReadSync = fs.readSync;
+  let bytesRead = 0;
+  const spy = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    const bytes = origReadSync(fd, buffer, offset, length, position);
+    if (fs.fstatSync(fd, { bigint: true }).ino === ino) bytesRead += bytes;
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+
+  assert.equal(read().model, 'First');
+  for (let i = 0; i < 3; i++) {
+    appendFileSync(file, block);
+    const frame = read();
+    assert.equal(frame.started, startMs);
+    assert.deepEqual(frame.completed, [{ name: 'Read', count: 2 }]);
+  }
+  // File is now > 16 MiB. Appending one tool call must keep full history and read only <= 8 KiB + delta.
+  const extra = [
+    { type: 'PLANNER_RESPONSE', created_at: '2026-11-24T01:00:00.000Z', model: 'Latest', tool_calls: [{ name: 'read_file' }] },
+    { type: 'GENERIC', status: 'DONE' },
+  ].map((event) => JSON.stringify(event) + '\n').join('');
+  bytesRead = 0;
+  appendFileSync(file, extra);
+  const grown = read();
+  assert.equal(grown.model, 'Latest');
+  assert.equal(grown.started, startMs);
+  assert.deepEqual(grown.completed, [{ name: 'Read', count: 3 }]);
+  assert.ok(bytesRead <= 2 * 4096 + Buffer.byteLength(extra), `expected bounded incremental read, got ${bytesRead}`);
+
+  // A cold rebuild of an existing > 8 MiB file drops started (truncated) and still resumes incrementally afterwards.
+  rmSync(cursor);
+  const rebuilt = read();
+  assert.equal(rebuilt.model, 'Latest');
+  assert.equal(rebuilt.started, undefined);
+  assert.deepEqual(rebuilt.completed, [{ name: 'Read', count: 1 }]);
+  bytesRead = 0;
+  const tailAppend = '{}\n';
+  appendFileSync(file, tailAppend);
+  assert.equal(read().model, 'Latest');
+  assert.ok(bytesRead <= 2 * 4096 + Buffer.byteLength(tailAppend), `expected bounded read after truncated rebuild, got ${bytesRead}`);
+});
+
+test('resumes after an oversized partial line and a split UTF-8 append', (t) => {
+  const { file, cursor, read } = transcriptFixture(t);
+  const initial = JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'Earlier' }) + '\n';
+  writeFileSync(file, initial);
+  assert.equal(read().model, 'Earlier');
+  appendFileSync(file, ' '.repeat(8 * 1024 * 1024) + initial.trimEnd());
+  assert.deepEqual(read(), { running: [], completed: [] });
+
+  const offset = statSync(file).size + 1;
+  const line = Buffer.from(JSON.stringify({ type: 'PLANNER_RESPONSE', model: '星', created_at: '2026-11-24T00:00:00Z' }) + '\n');
+  const split = line.indexOf('星') + 1;
+  appendFileSync(file, Buffer.concat([Buffer.from('\n'), line.subarray(0, split)]));
+  assert.deepEqual(read(), { running: [], completed: [] });
+  assert.equal(JSON.parse(readFileSync(cursor, 'utf8')).offset, offset);
+  appendFileSync(file, line.subarray(split));
+  const expected = { running: [], completed: [], model: '星', lastReply: Date.UTC(2026, 10, 24) };
+  assert.deepEqual(read(), expected);
+  assert.deepEqual(read(), expected);
 });
 
 test('handles Git before the first commit and displays dirty state in the command entry point', (t) => {

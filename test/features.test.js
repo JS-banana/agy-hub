@@ -82,13 +82,21 @@ test('stdin and preview replay show local cost and mode without writing the esti
   const payload = {
     conversation_id: conversationId, model: { id: 'claude-sonnet-5-5-high' },
     cost: null, context_window: { total_input_tokens: 400_000, total_output_tokens: 100_000 },
+    quota: { '3p-weekly': { remaining_fraction: 0.62 } },
     agent_state: 'idle', agent_mode: 'plan', terminal_width: 100,
   };
   const frame = run([], payload);
   assert.match(frame, /Cost ≈\$1\.80/);
   assert.match(frame, /Plan mode/);
+  assert.match(frame, /Usage Weekly .*38%/);
   assert.doesNotMatch(frame, /idle/);
   assert.equal(existsSync(join(directory, 'cost')), false);
+  assert.equal(run(['preview', '--last', '--plain']), frame);
+  const previewFile = join(directory, 'preview.json');
+  const legacy = JSON.parse(readFileSync(previewFile, 'utf8'));
+  assert.equal(legacy.version, 1);
+  delete legacy.state.quota.weekly.expired;
+  writeFileSync(previewFile, JSON.stringify(legacy));
   assert.equal(run(['preview', '--last', '--plain']), frame);
   assert.match(run([], { ...payload, cost: { total_usd: 0 } }), /Cost \$0\.00/);
   assert.equal(existsSync(join(directory, 'cost', `${conversationId}.json`)), true);
@@ -136,6 +144,67 @@ test('uses amount and percentage snapshots only for the same model pool and whil
   assert.equal(externalQuota(normalizeState(sample, NOW + 2500), config).weekly.used, 88);
   const disabled = { ...sample, quota: { ...sample.quota, 'gemini-weekly': { disabled: true } } };
   assert.equal(externalQuota(normalizeState(disabled, NOW + 3000), config).weekly, null);
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).weekly, null);
+});
+
+test('preserves a fresh snapshot from another session when the native short window expires', (t) => {
+  const path = join(temp(t), 'quota.json');
+  const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;
+  const observe = (quota, now) => externalQuota(normalizeState({ ...sample, quota }, now), display);
+  const saved = () => JSON.parse(readFileSync(path, 'utf8'));
+  const expired = { 'gemini-5h': { remaining_fraction: 0, reset_time: new Date(NOW).toISOString() } };
+  assert.equal(observe(expired, NOW).short, null);
+  assert.equal(existsSync(path), false);
+
+  observe({ ...sample.quota, 'gemini-weekly': { remaining_fraction: 0.75 } }, NOW);
+  const original = saved();
+  const later = NOW + 31_000;
+  const restored = observe(expired, later).short;
+  assert.equal(restored.used, 25);
+  assert.equal(restored.expired, false);
+  assert.equal(restored.reset, original.short.resetAt - later);
+  assert.deepEqual(saved(), original);
+
+  const merged = observe({ ...expired, 'gemini-weekly': { remaining_fraction: 0.5 } }, later);
+  assert.deepEqual(merged.short, restored);
+  assert.equal(merged.weekly.used, 50);
+  const updated = saved();
+  assert.deepEqual(updated.short, original.short);
+  assert.equal(updated.weekly.used, 50);
+  assert.equal(updated.weekly.observedAt, later);
+});
+
+test('discards snapshots observed before a known native reset while preserving the other window', (t) => {
+  const path = join(temp(t), 'quota.json');
+  const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;
+  const observe = (quota, now) => externalQuota(normalizeState({ ...sample, quota }, now), display);
+  const deadline = NOW + 1000;
+  const expired = { 'gemini-5h': { remaining_fraction: 0, reset_time: new Date(deadline).toISOString() } };
+  observe({ 'gemini-5h': { remaining_fraction: 0 }, 'gemini-weekly': { remaining_fraction: 0.62 } }, NOW);
+  const after = observe(expired, deadline);
+  assert.equal(after.short, null);
+  assert.equal(after.weekly.used, 38);
+  assert.equal(observe({}, deadline + 1).short, null);
+  observe({ 'gemini-5h': { remaining_fraction: 0.75 } }, deadline + 2);
+  assert.equal(observe(expired, deadline + 3).short.used, 25);
+  const nextReset = new Date(deadline + 4).toISOString();
+  const merged = observe({ 'gemini-5h': { remaining_fraction: 0, reset_time: nextReset },
+    'gemini-weekly': { remaining_fraction: 0.5 } }, deadline + 5);
+  assert.equal(merged.short, null);
+  assert.equal(merged.weekly.used, 50);
+  assert.equal(observe({}, deadline + 6).short, null);
+});
+
+test('replaces an elapsed snapshot with a fresh unused window whose only reset hint is zero', (t) => {
+  const path = join(temp(t), 'quota.json');
+  const display = normalizeConfig({ display: { externalUsagePath: path, externalUsageWritePath: path } }).display;
+  const quota = (reset) => ({ 'gemini-5h': { remaining_fraction: 1, reset_in_seconds: reset } });
+  externalQuota(normalizeState({ ...sample, quota: quota(1) }, NOW), display);
+  externalQuota(normalizeState({ ...sample, quota: quota(0) }, NOW + 1000), display);
+  const restored = externalQuota(normalizeState({ ...sample, quota: {} }, NOW + 2000), display).short;
+  assert.equal(restored.used, 0);
+  assert.equal(restored.expired, false);
+  assert.equal(restored.reset, 0);
 });
 
 test('never restores a quota snapshot past its known reset even when the snapshot is still fresh', (t) => {
@@ -172,6 +241,8 @@ test('records cumulative estimated cost changes once and separates quota weeks b
   assert.deepEqual(recordCosts({ ...state, cost: 0.375, now: NOW + 1000 }, settings, directory), { day: 0.125, week: 0.125 });
   const thirdParty = { ...state, now: NOW + 2000, cost: 0.5, quota: { key: '3p', weekly: state.quota.weekly } };
   assert.deepEqual(recordCosts(thirdParty, settings, directory), { day: 0.25, week: 0.125 });
+  const ended = normalizeState({ ...sample, quota: { 'gemini-weekly': { remaining_fraction: 0.55, reset_in_seconds: 0 } } }, NOW + 3000);
+  assert.deepEqual(recordCosts(ended, settings, directory), { day: 0.25, week: null });
 });
 
 test('migrates a large legacy cost ledger without losing exact times or counting unpublished batches', (t) => {

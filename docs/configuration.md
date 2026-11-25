@@ -190,7 +190,7 @@ Color keys accept standard ANSI color names (`black`, `red`, `green`, `yellow`, 
 | Variable | Purpose |
 | --- | --- |
 | `AGY_HUB_CONFIG` | Override the default configuration file path |
-| `AGY_HUB_DATA_DIR` | Override `~/.gemini/antigravity-cli/agy-hub-data/` for cost ledgers, hooks cache, and recorded previews |
+| `AGY_HUB_DATA_DIR` | Override `~/.gemini/antigravity-cli/agy-hub-data/` for cost ledgers, hook data, transcript cursors, and recorded previews |
 | `AGY_HUB_DISABLE=1` | Disable the HUD for a single `agy` session |
 | `AGY_HUB_ALLOW_EXTRA_CMD=1` | Allow `--extra-cmd '<command>'` to append its first output line to the HUD |
 | `NO_COLOR=1` | Disable ANSI colors in HUD and preview output |

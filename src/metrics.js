@@ -120,19 +120,21 @@ export function usageParts(frame, compact, align = false) {
   const { state, config, style, words } = frame;
   const { display } = config;
   const { short, weekly, scoped } = state.quota;
-  if (!display.showUsage || (scoped && !display.showModelScopedUsage) || (!short && !weekly)) return [];
+  const activeShort = short && !short.expired ? short : null;
+  const activeWeekly = weekly && !weekly.expired ? weekly : null;
+  if (!display.showUsage || (scoped && !display.showModelScopedUsage) || (!activeShort && !activeWeekly)) return [];
   const label = barLabel(frame, 'usage', align);
-  const exhausted = [short, weekly].find((window) => window?.exhausted);
+  const exhausted = [activeShort, activeWeekly].find((window) => window?.exhausted);
   if (exhausted) {
-    const reset = resets(frame, exhausted, exhausted === short ? 5 * HOUR : WEEK, compact, true);
+    const reset = resets(frame, exhausted, exhausted === activeShort ? 5 * HOUR : WEEK, compact, true);
     const status = display.usageCompact && config.language === 'en' ? 'Limit' : words.limit;
     const warning = style(`⚠ ${status}${reset ? ` (${reset})` : ''}`, 'critical');
     return [compact || display.usageCompact ? warning : `${label} ${warning}`];
   }
-  const shortPace = pace(short, 5 * HOUR, display.usagePace);
-  const weeklyPace = pace(weekly, WEEK, display.usagePace);
-  if (!shortPace && !weeklyPace && Math.max(short?.used ?? 0, weekly?.used ?? 0) < display.usageThreshold
-    && short?.amount == null && weekly?.amount == null) return [];
+  const shortPace = pace(activeShort, 5 * HOUR, display.usagePace);
+  const weeklyPace = pace(activeWeekly, WEEK, display.usagePace);
+  if (!shortPace && !weeklyPace && Math.max(activeShort?.used ?? 0, activeWeekly?.used ?? 0) < display.usageThreshold
+    && activeShort?.amount == null && activeWeekly?.amount == null) return [];
 
   /** @param {QuotaWindow} window @param {boolean} isWeekly @param {ReturnType<typeof pace>} trend */
   const format = (window, isWeekly, trend) => {
@@ -140,7 +142,7 @@ export function usageParts(frame, compact, align = false) {
     const used = window.used ?? 0;
     const shade = used >= 90 || trend === 'critical' ? 'critical'
       : used >= 75 || trend ? 'usageWarning' : 'usage';
-    const name = isWeekly ? barLabel(frame, 'weekly', align && Boolean(short)) : style('5h', 'label');
+    const name = isWeekly ? barLabel(frame, 'weekly', align && Boolean(activeShort)) : style('5h', 'label');
     const reset = resets(frame, window, period, compact);
     const value = display.usageValue === 'remaining' ? 100 - used : used;
     const balance = window.amount ?? 0;
@@ -157,15 +159,15 @@ export function usageParts(frame, compact, align = false) {
       reset ? style(`(${reset})`, 'label') : '',
     ].filter(Boolean).join(' ');
   };
-  if (!short) {
-    if (!weekly) return [];
-    const entry = format(weekly, true, weeklyPace);
+  if (!activeShort) {
+    if (!activeWeekly) return [];
+    const entry = format(activeWeekly, true, weeklyPace);
     return [compact || display.usageCompact ? entry : `${label} ${entry}`];
   }
-  const entry = format(short, false, shortPace);
+  const entry = format(activeShort, false, shortPace);
   const parts = [display.usageCompact ? entry : `${label} ${entry}`];
-  if (weekly && ((weekly.used ?? 0) >= display.sevenDayThreshold || weeklyPace || weekly.amount !== null)) {
-    parts.push(format(weekly, true, weeklyPace));
+  if (activeWeekly && ((activeWeekly.used ?? 0) >= display.sevenDayThreshold || weeklyPace || activeWeekly.amount !== null)) {
+    parts.push(format(activeWeekly, true, weeklyPace));
   }
   return parts;
 }
