@@ -84,7 +84,7 @@ test('renders execution mode on its own without changing the full agent status',
   const state = normalizeState({ ...payload, cycle_mode: 'auto', agent_state: 'idle',
     agent: { name: 'reviewer' }, sandbox: { enabled: true } });
   const hud = (settings) => render(state, normalizeConfig(settings), { color: false });
-  assert.match(hud({ display: { showAgentState: true } }), /reviewer · idle · auto · Sandbox/);
+  assert.match(hud({ display: { showAgentState: true, agentStateFormat: 'text' } }), /reviewer · idle · auto · Sandbox/);
   const modeOnly = hud({ display: { showAgentModeOnly: true } });
   assert.match(modeOnly, /Auto mode/);
   assert.doesNotMatch(modeOnly, /reviewer|idle|Sandbox/);

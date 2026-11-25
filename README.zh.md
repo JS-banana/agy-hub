@@ -25,20 +25,20 @@ AGY HUD 是为 Antigravity CLI（`agy`）打造的可配置终端状态栏。它
 **`default`** —— 默认两行，均衡展示模型、项目、Git、上下文和配额：
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
 **`compact`** —— 紧凑单行，空间充足时将项目与主要指标合并到一行：
 
 ```text
-[Gemini 3.8 Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
+[Gemini 3.8 Flash ◑ high] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
 ```
 
 **`activity`** —— 扩展活动视图，在分隔线下实时展示工具调用与子代理状态：
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ────────────────────────────────────────────────────────────────
 ◐ Edit: auth.ts | ✓ Read ×3 | ✓ Grep ×2

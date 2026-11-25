@@ -25,20 +25,20 @@ Three built-in presets cover common terminal sizes (tested below with `node src/
 **`default`** — two-row view with model, project, Git, context, and quota:
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ```
 
 **`compact`** — fits project and metrics onto one line when width allows:
 
 ```text
-[Gemini 3.8 Flash] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
+[Gemini 3.8 Flash ◑ high] █████░░░░░ 45% | my-project git:(main*) | Usage ███░░░░░░░ 25% (1h 30m / 5h)
 ```
 
 **`activity`** — adds a divider with live tool calls and subagent status:
 
 ```text
-[Gemini 3.8 Flash] │ my-project git:(main*)
+[Gemini 3.8 Flash ◑ high] │ my-project git:(main*)
 Context █████░░░░░ 45% │ Usage ███░░░░░░░ 25% (resets in 1h 30m)
 ────────────────────────────────────────────────────────────────
 ◐ Edit: auth.ts | ✓ Read ×3 | ✓ Grep ×2
