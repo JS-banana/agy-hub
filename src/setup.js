@@ -5,7 +5,6 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { withLegacy } from './legacy-name.js';
 import { isRecord } from './objects.js';
 import { readTextFile } from './runtime/text-file.js';
 
@@ -118,7 +117,7 @@ async function withSettingsLock(file, createDirectory, operation) {
   }
 
   try {
-    return await operation(path, withLegacy(`${path}.agy-hud-backup.json`));
+    return await operation(path, `${path}.agy-hud-backup.json`);
   } finally {
     await rmdir(lock);
   }
@@ -288,7 +287,7 @@ export async function diagnoseInstallation({ settingsPath: file = settingsPath()
   const enabled = configured && statusLine?.enabled !== false;
   const paths = bindingPaths(statusLine?.command);
   const current = paths?.base === createStatusLine().command;
-  const backupPath = withLegacy(`${target}.agy-hud-backup.json`);
+  const backupPath = `${target}.agy-hud-backup.json`;
   let backup;
   try { backup = readBackup(backupPath); } catch {
     return { state: 'invalid-backup', enabled, managed: current };

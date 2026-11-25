@@ -7,14 +7,13 @@ import { configCounts, externalQuota, memoryUsageAsync, recordCosts } from '../l
 import { render } from '../render.js';
 import { recordPreview } from '../replay.js';
 import { normalizeState } from '../state.js';
-import { env } from '../legacy-name.js';
 import { labelText } from '../terminal.js';
 import { readCommand } from './command.js';
 import { readInput } from './input.js';
 
 /** @param {string} [command] */
 async function extraLabel(command) {
-  if (!command || env('ALLOW_EXTRA_CMD') !== '1' || process.platform === 'win32') return '';
+  if (!command || process.env.AGY_HUD_ALLOW_EXTRA_CMD !== '1' || process.platform === 'win32') return '';
   const { status, stdout } = await readCommand('/bin/sh', ['-c', command], { timeout: 300, maxBuffer: 4096 });
   return status === 0 ? labelText(stdout.split('\n', 1)[0]) : '';
 }
@@ -23,7 +22,7 @@ async function extraLabel(command) {
  *  @param {string} [extraCommand]
  */
 export async function statusline(extraCommand) {
-  if (env('DISABLE') === '1') return '';
+  if (process.env.AGY_HUD_DISABLE === '1') return '';
   const payload = await readInput();
   if (!payload) return '';
   const config = readConfig();

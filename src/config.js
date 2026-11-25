@@ -2,12 +2,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeConfig } from './config-schema.js';
-import { env, withLegacy } from './legacy-name.js';
 import { readTextFile } from './runtime/text-file.js';
 
 export { ansiColors, normalizeConfig } from './config-schema.js';
 
-export const configPath = () => env('CONFIG') ?? withLegacy(join(homedir(), '.gemini', 'antigravity-cli', 'agy-hud.json'));
+export const configPath = () => process.env.AGY_HUD_CONFIG ?? join(homedir(), '.gemini', 'antigravity-cli', 'agy-hud.json');
 
 /** @param {string} [file] */
 export function readConfig(file = configPath()) {

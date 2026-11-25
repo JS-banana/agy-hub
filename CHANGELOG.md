@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Renamed the project from AGY Hub to AGY HUD (`agy-hud`), since it is a heads-up display rather than a hub. Existing `AGY_HUB_*` environment variables, `agy-hub.json` configuration, `agy-hub-data` state, and installation backups keep working, and `agy-hub` remains a command alias. `skill install` replaces a managed `/agy-hub` skill with `/agy-hud`. If you merged tool hooks, replace the `agy-hub` entry in `.agents/hooks.json` with the output of `hooks`.
+- Renamed the project from AGY Hub to AGY HUD (`agy-hud`). Commands, the `/agy-hud` skill, `AGY_HUD_*` environment variables, and configuration and data paths use the new name only. To upgrade from 0.5.0 or earlier, run `uninstall` with the old version, then install this version.
 
 ## [0.5.0] - 2026-11-25
 
