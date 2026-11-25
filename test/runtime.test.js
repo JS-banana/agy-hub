@@ -113,20 +113,48 @@ test('the Orchestrator badge takes its reasoning effort from the configured plan
   const root = mkdtempSync(join(tmpdir(), 'agy-hud-orchestrator-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const settings = join(root, '.gemini', 'antigravity-cli');
+  const settingsFile = join(settings, 'settings.json');
   mkdirSync(settings, { recursive: true });
-  writeFileSync(join(settings, 'settings.json'), JSON.stringify({ orchestrator: { planner: 'Gemini 4 Neon (High)' } }));
+  writeFileSync(settingsFile, JSON.stringify({ orchestrator: { planner: 'Gemini 4 Neon (High)' } }));
   const config = join(root, 'hud.json');
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-  /** @param {object} model @param {boolean} showEffortLevel */
-  const run = (model, showEffortLevel = true) => {
-    writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display: { showEffortLevel } }));
+  /** @param {object} model @param {Record<string, unknown>} [display] @param {Record<string, unknown>} [extraPayload] */
+  const run = (model, display = { showEffortLevel: true }, extraPayload = {}) => {
+    writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display }));
     return execFileSync(process.execPath, [cli], {
       env: { ...process.env, HOME: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(root, 'data'), NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
-      input: JSON.stringify({ cwd: root, model }), encoding: 'utf8', timeout: 2500,
+      input: JSON.stringify({ cwd: root, model, ...extraPayload }), encoding: 'utf8', timeout: 2500,
     });
   };
   const orchestrator = { id: 'Orchestrator (Neon)', display_name: 'Orchestrator (Neon)' };
   assert.match(run(orchestrator), /\[Orchestrator \(Neon\) ◑ high\]/);
-  assert.match(run(orchestrator, false), /\[Orchestrator \(Neon\)\]/);
+  assert.match(run(orchestrator, { showEffortLevel: false }), /\[Orchestrator \(Neon\)\]/);
   assert.match(run({ display_name: 'Gemini 4 Neon (Low)', effort: 'low' }), /\[Gemini 4 Neon ○ low\]/);
+
+  writeFileSync(settingsFile, JSON.stringify({ orchestrator: { planner: 'Gemini 4 Neon (Extra High)' } }));
+  assert.match(run(orchestrator), /\[Orchestrator \(Neon\) ◕ xhigh\]/);
+
+  for (const planner of ['Gemini 4 Neon (Preview)', 'Claude Opus 4 (Thinking)']) {
+    writeFileSync(settingsFile, JSON.stringify({ orchestrator: { planner } }));
+    assert.match(run(orchestrator), /\[Orchestrator \(Neon\)\]/);
+  }
+
+  for (const raw of ['{}', '{invalid json']) {
+    writeFileSync(settingsFile, raw);
+    assert.match(run(orchestrator), /\[Orchestrator \(Neon\)\]/);
+  }
+
+  if (process.platform !== 'win32') {
+    const linkedTarget = join(root, 'dotfiles-settings.json');
+    writeFileSync(linkedTarget, JSON.stringify({ orchestrator: { planner: 'Gemini 4 Neon (High)' } }));
+    rmSync(settingsFile);
+    symlinkSync(linkedTarget, settingsFile);
+    assert.match(run(orchestrator), /\[Orchestrator \(Neon\) ◑ high\]/);
+  }
+
+  const conversationId = '12345678-abcd-ef01-2345-6789abcdef01';
+  const transcriptDir = join(settings, 'brain', conversationId, '.system_generated', 'logs');
+  mkdirSync(transcriptDir, { recursive: true });
+  writeFileSync(join(transcriptDir, 'transcript.jsonl'), `${JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'Gemini 4 Hydrogen' })}\n`);
+  assert.match(run(orchestrator, { showEffortLevel: true, modelSource: 'transcript' }, { conversation_id: conversationId }), /\[Gemini 4 Hydrogen\]/);
 });

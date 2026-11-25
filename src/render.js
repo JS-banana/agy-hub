@@ -101,9 +101,14 @@ function agentPart({ config: { display }, state, words, style }) {
       ? words.agentModes[/** @type {keyof typeof words.agentModes} */ (key)] : mode);
   }
   if (!display.showAgentState) return '';
-  let status = tint(state.agentState);
-  if (display.agentStateFormat === 'icon' && state.agentState) {
-    status = state.agentState === 'idle' ? tint('○') : style(`◐ ${state.agentState}`, 'warning');
+  let status = '';
+  if (state.agentState) {
+    const isIdle = state.agentState.toLowerCase() === 'idle';
+    if (display.agentStateFormat === 'active') {
+      status = isIdle ? '' : style(`◐ ${state.agentState.replaceAll('_', ' ')}`, 'warning');
+    } else {
+      status = isIdle ? style(state.agentState, 'label') : tint(state.agentState);
+    }
   }
   const parts = [tint(state.agent), status, tint(state.cycleMode), tint(state.sandbox ? 'Sandbox' : '')].filter(Boolean);
   return parts.join(tint(' · '));

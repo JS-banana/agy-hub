@@ -12,7 +12,13 @@ import { normalizeState } from '../state.js';
 import { labelText } from '../terminal.js';
 import { readCommand } from './command.js';
 import { readInput } from './input.js';
-import { readObject } from './json-file.js';
+import { readTextFile } from './text-file.js';
+
+const SETTINGS_BYTES = 1024 * 1024;
+const PLANNER_EFFORT = new Map(Object.entries({
+  low: 'low', medium: 'medium', high: 'high',
+  xhigh: 'xhigh', 'extra high': 'xhigh', extra: 'xhigh', max: 'max',
+}));
 
 /** @param {string} [command] */
 async function extraLabel(command) {
@@ -26,8 +32,17 @@ async function extraLabel(command) {
  */
 function orchestratorEffort(model) {
   if (!/^orchestrator\b/i.test(model)) return '';
-  const planner = objectOrEmpty(objectOrEmpty(readObject(settingsPath())).orchestrator).planner;
-  return typeof planner === 'string' ? labelText(/\(([^()]+)\)\s*$/.exec(planner)?.[1] ?? '').toLowerCase() : '';
+  try {
+    const file = readTextFile(settingsPath(), SETTINGS_BYTES);
+    if (!file) return '';
+    const parsed = /** @type {unknown} */ (JSON.parse(file.text));
+    const planner = objectOrEmpty(objectOrEmpty(parsed).orchestrator).planner;
+    if (typeof planner !== 'string') return '';
+    const raw = labelText(/\(([^()]+)\)\s*$/.exec(planner)?.[1] ?? '').toLowerCase().replace(/\s+/g, ' ');
+    return PLANNER_EFFORT.get(raw) ?? '';
+  } catch {
+    return '';
+  }
 }
 
 /** Read one callback, gather enabled probes, and hand the data to the pure renderer.
@@ -40,7 +55,6 @@ export async function statusline(extraCommand) {
   const config = readConfig();
   const state = normalizeState(payload);
   const { display } = config;
-  if (display.showEffortLevel && !state.effort) state.effort = orchestratorEffort(state.model);
   const vcsPromise = config.gitStatus.enabled || config.jjStatus.enabled
     ? gitStatusAsync(state.cwd, config.gitStatus, state.vcs, config.jjStatus) : null;
   const memoryPromise = display.showMemoryUsage ? memoryUsageAsync() : null;
@@ -56,6 +70,9 @@ export async function statusline(extraCommand) {
   const [git, activity, memory, environment, extra] = await Promise.all([
     vcsPromise, activityPromise, memoryPromise, environmentPromise, extraPromise,
   ]);
+  if (display.showEffortLevel && !state.effort && !(display.modelSource === 'transcript' && activity?.model)) {
+    state.effort = orchestratorEffort(state.model);
+  }
   state.quota = externalQuota(state, display);
   const details = {
     git, activity, memory, environment, extra, color: !process.env.NO_COLOR,
