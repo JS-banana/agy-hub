@@ -254,7 +254,7 @@ function readTranscript(fd, info, cursorPath, agentState, now) {
  *  @param {string} [home] @param {string} [directory]
  */
 export function readActivity(state, home = homedir(),
-  directory = home === homedir() ? dataDir() : join(home, '.gemini', 'antigravity-cli', 'agy-hub-data')) {
+  directory = home === homedir() ? dataDir() : join(home, '.gemini', 'antigravity-cli', 'agy-hud-data')) {
   const { conversationId, transcriptPath, agentState } = state;
   if (!conversationId || !validConversation(conversationId)) return null;
   const now = state.now ?? Date.now();

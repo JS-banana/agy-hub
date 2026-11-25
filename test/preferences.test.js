@@ -7,9 +7,9 @@ import { ansiColors, normalizeConfig } from '../src/config.js';
 import { preferences } from '../src/preferences.js';
 
 function fixture(context) {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-hub-preferences-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agy-hud-preferences-'));
   context.after(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, 'agy-hub.json');
+  const path = join(dir, 'agy-hud.json');
   return {
     path,
     undoPath: `${path}.undo.json`,

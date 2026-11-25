@@ -1,14 +1,14 @@
-# AGY Hub
+# AGY HUD
 
 [English](README.md)
 
-[![CI](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml)
+[![CI](https://github.com/JS-banana/agy-hud/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hud/actions/workflows/test.yml)
 [![Node.js >= 22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-AGY Hub 是为 Antigravity CLI（`agy`）打造的可配置终端状态栏。它能在一屏之内直观呈现当前模型、上下文占用、配额与重置倒计时、会话金额、Git/Jujutsu 状态以及实时工具与子代理调用，并在窄屏终端下自动调整布局。
+AGY HUD 是为 Antigravity CLI（`agy`）打造的可配置终端状态栏。它能在一屏之内直观呈现当前模型、上下文占用、配额与重置倒计时、会话金额、Git/Jujutsu 状态以及实时工具与子代理调用，并在窄屏终端下自动调整布局。
 
-![AGY Hub 在 Antigravity CLI 中显示模型、估算会话费用、Git 分支、运行模式、上下文占用以及 5 小时和周配额](docs/assets/agy-hub-terminal-preview.png)
+![AGY HUD 在 Antigravity CLI 中显示模型、估算会话费用、Git 分支、运行模式、上下文占用以及 5 小时和周配额](docs/assets/agy-hud-terminal-preview.png)
 
 ## 核心功能
 
@@ -56,21 +56,21 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 复制以下提示词发给你的 Agent：
 
 ```text
-帮我按 https://github.com/JS-banana/agy-hub 中 skills/agy-hub/SKILL.md 的指引接入 Antigravity CLI 状态栏，先预览再启用，并注册 /agy-hub。
+帮我按 https://github.com/JS-banana/agy-hud 中 skills/agy-hud/SKILL.md 的指引接入 Antigravity CLI 状态栏，先预览再启用，并注册 /agy-hud。
 ```
 
-如果你已经加载过 `/agy-hub` 技能，直接输入：
+如果你已经加载过 `/agy-hud` 技能，直接输入：
 
 ```text
-/agy-hub 帮我接入 AGY Hub，先给我看预览
+/agy-hud 帮我接入 AGY HUD，先给我看预览
 ```
 
 ### 方式二：终端交互向导手动安装
 
 ```sh
 mkdir -p "$HOME/.local/share"
-git clone https://github.com/JS-banana/agy-hub.git "$HOME/.local/share/agy-hub"
-cd "$HOME/.local/share/agy-hub"
+git clone https://github.com/JS-banana/agy-hud.git "$HOME/.local/share/agy-hud"
+cd "$HOME/.local/share/agy-hud"
 node src/cli.js setup --prompt-language zh-Hans
 ```
 
@@ -84,10 +84,10 @@ agy --settings "$(node src/cli.js settings)"
 
 ## 常用定制
 
-注册 `/agy-hub` 后，在任何工作区都可以直接用自然语言调整状态栏：
+注册 `/agy-hud` 后，在任何工作区都可以直接用自然语言调整状态栏：
 
 ```text
-/agy-hub 帮我开启费用估算、常驻周配额和工具活动，界面改成简体中文
+/agy-hud 帮我开启费用估算、常驻周配额和工具活动，界面改成简体中文
 ```
 
 也可以在终端里重新打开配置向导（`node src/cli.js setup --configure-only --prompt-language zh-Hans`），或通过 CLI 直接修改与撤回：
@@ -113,14 +113,14 @@ node src/cli.js config undo
 
 ## 排查、升级与卸载
 
-- **健康检查与回放**：在项目目录运行 `node src/cli.js doctor`（或发送 `/agy-hub 帮我检查状态栏`）检查绑定与配置；`node src/cli.js report` 可生成脱敏诊断报告；启用 `display.recordPreview` 后可用 `node src/cli.js preview --last` 回放上一帧。
+- **健康检查与回放**：在项目目录运行 `node src/cli.js doctor`（或发送 `/agy-hud 帮我检查状态栏`）检查绑定与配置；`node src/cli.js report` 可生成脱敏诊断报告；启用 `display.recordPreview` 后可用 `node src/cli.js preview --last` 回放上一帧。
 - **升级版本**：
   ```sh
   git pull --ff-only
   node src/cli.js install
-  node src/cli.js skill install # 若使用了 /agy-hub
+  node src/cli.js skill install # 若使用了 /agy-hud
   ```
-- **临时停用**：运行 `AGY_HUB_DISABLE=1 agy` 启动单次会话。
+- **临时停用**：运行 `AGY_HUD_DISABLE=1 agy` 启动单次会话。
 - **彻底卸载**：移除技能并恢复原有的状态栏配置：
   ```sh
   node src/cli.js skill uninstall # 若安装了 Skill
@@ -138,4 +138,4 @@ npm run check
 
 ## 致谢
 
-AGY Hub 的设计参考了 [claude-hud](https://github.com/jarrodwatts/claude-hud)，感谢其作者与贡献者。
+AGY HUD 的设计参考了 [claude-hud](https://github.com/jarrodwatts/claude-hud)，感谢其作者与贡献者。

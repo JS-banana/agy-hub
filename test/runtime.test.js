@@ -19,7 +19,7 @@ test('stdin uses a byte limit and decodes UTF-8 across chunks', async () => {
 });
 
 test('config accepts regular symlinks and ignores oversized input and FIFOs without blocking', { skip: process.platform === 'win32' }, (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'agy-hub-read-'));
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-read-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const regular = join(root, 'hud.json');
   const link = join(root, 'link.json');
@@ -33,46 +33,46 @@ test('config accepts regular symlinks and ignores oversized input and FIFOs with
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const output = execFileSync(process.execPath, [cli], {
     input: '{"model":{"display_name":"Protected"},"context_window":{"used_percentage":3}}',
-    env: { ...process.env, HOME: root, AGY_HUB_CONFIG: pipe, NO_COLOR: '1', AGY_HUB_DISABLE: '0' },
+    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: pipe, NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
     encoding: 'utf8', timeout: 2000,
   });
   assert.match(output, /\[Protected\]\nContext/);
   const doctor = JSON.parse(execFileSync(process.execPath, [cli, 'doctor'], {
-    env: { ...process.env, HOME: root, AGY_HUB_CONFIG: pipe }, encoding: 'utf8', timeout: 2000,
+    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: pipe }, encoding: 'utf8', timeout: 2000,
   }));
   assert.equal(doctor.configuration.error, 'unreadable');
 });
 
 test('preset preview is independent of an existing configuration', (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'agy-hub-preset-'));
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-preset-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = join(root, 'config.json');
   writeFileSync(config, '{"lineLayout":"compact","display":{"showModel":false}}');
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const preview = execFileSync(process.execPath, [cli, 'preview', '--preset', 'default', '--plain'], {
-    env: { ...process.env, AGY_HUB_CONFIG: config }, encoding: 'utf8',
+    env: { ...process.env, AGY_HUD_CONFIG: config }, encoding: 'utf8',
   });
   assert.match(preview, /^\[Gemini [^\n]+\nContext /);
 });
 
 test('a partial replay file is a cache miss in diagnostics', (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'agy-hub-replay-'));
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-replay-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const data = join(root, 'data');
   mkdirSync(data);
   writeFileSync(join(data, 'preview.json'), '{"state":{},"details":{}}');
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const output = execFileSync(process.execPath, [cli, 'report'], {
-    env: { ...process.env, HOME: root, AGY_HUB_DATA_DIR: data, AGY_HUB_CONFIG: join(root, 'hud.json') }, encoding: 'utf8',
+    env: { ...process.env, HOME: root, AGY_HUD_DATA_DIR: data, AGY_HUD_CONFIG: join(root, 'hud.json') }, encoding: 'utf8',
   });
   const report = JSON.parse(output);
   assert.equal(report.capturedFrame, null);
   assert.equal('paths' in report, false);
-  assert.doesNotMatch(output, /agy-hub-replay-/);
+  assert.doesNotMatch(output, /agy-hud-replay-/);
 });
 
 test('a timed-out extra command leaves memory and hook workspace counts in the frame', { skip: process.platform === 'win32' }, (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'agy-hub-probes-'));
+  const root = mkdtempSync(join(tmpdir(), 'agy-hud-probes-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const cwd = join(root, 'project');
   const shared = join(root, 'shared');
@@ -86,8 +86,8 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   recordHook('SessionStart', { conversationId, workspacePaths: [cwd, shared] }, data);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const run = (command, allow = '1') => execFileSync(process.execPath, [cli, '--extra-cmd', command], {
-    env: { ...process.env, HOME: root, AGY_HUB_CONFIG: config, AGY_HUB_DATA_DIR: data,
-      AGY_HUB_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUB_DISABLE: '0' },
+    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: data,
+      AGY_HUD_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
     input: JSON.stringify({ cwd, model: { display_name: 'Probes' }, conversation_id: conversationId }),
     encoding: 'utf8', timeout: 2500,
   });

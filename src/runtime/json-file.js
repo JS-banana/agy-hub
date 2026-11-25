@@ -51,7 +51,7 @@ export function writeObject(path, value, maxBytes = MAX_OBJECT_BYTES) {
   if (Buffer.byteLength(contents) > maxBytes) throw new Error('Local data exceeds its size limit.');
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const tmp = join(directory, `.agy-hub-${randomUUID()}.tmp`);
+  const tmp = join(directory, `.agy-hud-${randomUUID()}.tmp`);
   try {
     writeFileSync(tmp, contents, { flag: 'wx', mode: 0o600 });
     renameSync(tmp, path);

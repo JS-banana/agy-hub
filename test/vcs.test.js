@@ -11,13 +11,13 @@ const gitAvailable = process.platform !== 'win32' && spawnSync('git', ['--versio
 const jjAvailable = process.platform !== 'win32' && spawnSync('jj', ['--version']).status === 0;
 
 function temp(context) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hub-vcs-')));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hud-vcs-')));
   context.after(() => rmSync(dir, { force: true, recursive: true }));
   return dir;
 }
 
 function git(cwd, ...args) {
-  return execFileSync('git', ['-C', cwd, '-c', 'user.name=AGY Hub Tests', '-c', 'user.email=test@example.invalid',
+  return execFileSync('git', ['-C', cwd, '-c', 'user.name=AGY HUD Tests', '-c', 'user.email=test@example.invalid',
     '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
@@ -177,7 +177,7 @@ test('a jj checkout with local configuration falls back only to colocated Git', 
 
 test('Jujutsu shows a bookmark, recorded changes and conflicts without snapshotting the working copy', { skip: !jjAvailable }, async (context) => {
   const cwd = temp(context);
-  const env = { ...process.env, JJ_CONFIG: '', JJ_USER: 'AGY Hub Tests', JJ_EMAIL: 'test@example.invalid', XDG_CONFIG_HOME: cwd };
+  const env = { ...process.env, JJ_CONFIG: '', JJ_USER: 'AGY HUD Tests', JJ_EMAIL: 'test@example.invalid', XDG_CONFIG_HOME: cwd };
   const jj = (...args) => execFileSync('jj', args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   jj('git', 'init', '--no-colocate');
   const status = () => statusFromBoth(cwd, { enabled: false }, 'jj', { enabled: true });

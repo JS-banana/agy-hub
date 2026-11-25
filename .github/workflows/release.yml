@@ -50,11 +50,11 @@ jobs:
       - name: Pack and checksum
         shell: bash
         run: |
-          assets="$RUNNER_TEMP/agy-hub-release"
+          assets="$RUNNER_TEMP/agy-hud-release"
           mkdir -p "$assets"
           npm pack --pack-destination "$assets"
           cd "$assets"
-          sha256sum agy-hub-*.tgz | tee SHA256SUMS
+          sha256sum agy-hud-*.tgz | tee SHA256SUMS
       - name: Publish to GitHub Releases
         if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
         env:
@@ -66,5 +66,5 @@ jobs:
           if [[ "$TAG" == *-* ]]; then
             args+=(--prerelease)
           fi
-          assets="$RUNNER_TEMP/agy-hub-release"
-          gh release create "$TAG" "${args[@]}" "$assets"/agy-hub-*.tgz "$assets/SHA256SUMS"
+          assets="$RUNNER_TEMP/agy-hud-release"
+          gh release create "$TAG" "${args[@]}" "$assets"/agy-hud-*.tgz "$assets/SHA256SUMS"

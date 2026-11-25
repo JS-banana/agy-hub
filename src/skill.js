@@ -6,8 +6,9 @@ import { dirname, join } from 'node:path';
 import { readTextFile } from './runtime/text-file.js';
 import { cliCommand } from './setup.js';
 
-const bundledSkill = new URL('../skills/agy-hub/SKILL.md', import.meta.url);
-const fingerprint = /\n<!-- AGY Hub installed SHA-256: ([a-f0-9]{64}) -->\n$/;
+const bundledSkill = new URL('../skills/agy-hud/SKILL.md', import.meta.url);
+// Releases up to 0.5.0 installed the skill as AGY Hub at /agy-hub.
+const fingerprint = /\n<!-- AGY H(?:UD|ub) installed SHA-256: ([a-f0-9]{64}) -->\n$/;
 // Version 0.4.0 copied the bundled file verbatim.
 const legacyFingerprint = 'f2a8409de6742bf922fb617a47e510ae1ccbcbd307aa357f0821b2e2bc6e5abb';
 
@@ -28,36 +29,41 @@ async function readInstalled(path) {
     throw error;
   });
   if (!info) return null;
-  if (!info.isFile() || info.size > 128 * 1024) throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);
+  if (!info.isFile() || info.size > 128 * 1024) throw new Error(`The existing skill at ${path} is custom or modified. AGY HUD left it in place.`);
   return readTextFile(path, 128 * 1024)?.text ?? null;
 }
 
 /** @param {string} action */
 export async function manageSkill(action, home = homedir()) {
-  const path = join(home, '.gemini', 'antigravity-cli', 'skills', 'agy-hub', 'SKILL.md');
+  const skills = join(home, '.gemini', 'antigravity-cli', 'skills');
+  const path = join(skills, 'agy-hud', 'SKILL.md');
   if (action === 'path') return path;
-  if (action !== 'install' && action !== 'uninstall') throw new Error('Use agy-hub skill install, uninstall, or path.');
+  if (action !== 'install' && action !== 'uninstall') throw new Error('Use agy-hud skill install, uninstall, or path.');
   const content = await readFile(bundledSkill, 'utf8');
   const commandBlock = cliCommand().split('\n').map((line) => '    ' + line).join('\n');
   const body = `${content.trimEnd()}\n\n## Installed command\n\n${commandBlock}\n`;
-  const installed = `${body}\n<!-- AGY Hub installed SHA-256: ${digest(body)} -->\n`;
+  const installed = `${body}\n<!-- AGY HUD installed SHA-256: ${digest(body)} -->\n`;
   const existing = await readInstalled(path);
   if (existing !== null && !isManaged(existing, content)) {
-    throw new Error(`The existing skill at ${path} is custom or modified. AGY Hub left it in place.`);
+    throw new Error(`The existing skill at ${path} is custom or modified. AGY HUD left it in place.`);
   }
+  const legacyPath = join(skills, 'agy-hub', 'SKILL.md');
+  const legacy = await readInstalled(legacyPath).catch(() => null);
+  // Both install and uninstall retire a managed /agy-hub copy so only one slash command remains.
+  const removedLegacy = legacy !== null && isManaged(legacy, content) && await unlink(legacyPath).then(() => true);
   async function verifySkill() {
     if (await readInstalled(path) !== existing) throw new Error(`The skill at ${path} changed during setup. Try again.`);
   }
   if (action === 'uninstall') {
-    if (existing === null) return 'The /agy-hub skill is not installed.';
+    if (existing === null) return removedLegacy ? 'Removed the /agy-hub skill. Open a new agy session to reload skills.' : 'The /agy-hud skill is not installed.';
     await verifySkill();
     await unlink(path);
-    return 'Removed the /agy-hub skill. Open a new agy session to reload skills.';
+    return 'Removed the /agy-hud skill. Open a new agy session to reload skills.';
   }
-  if (existing === installed) return 'The /agy-hub skill is already installed.';
+  if (existing === installed) return 'The /agy-hud skill is already installed.';
   const folder = dirname(path);
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  const temp = join(folder, `.agy-hub-${randomUUID()}.tmp`);
+  const temp = join(folder, `.agy-hud-${randomUUID()}.tmp`);
   try {
     await writeFile(temp, installed, { flag: 'wx', mode: 0o600 });
     if (existing === null) await link(temp, path);
@@ -69,5 +75,5 @@ export async function manageSkill(action, home = homedir()) {
     await unlink(temp).catch((error) => { if (error.code !== 'ENOENT') throw error; });
   }
   const operation = existing === null ? 'Installed' : 'Updated';
-  return `${operation} the /agy-hub skill. Open a new agy session, or run /skills reload in the interactive CLI.`;
+  return `${operation} the /agy-hud skill. Open a new agy session, or run /skills reload in the interactive CLI.`;
 }

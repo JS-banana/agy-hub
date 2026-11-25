@@ -1,14 +1,14 @@
-# AGY Hub
+# AGY HUD
 
 [简体中文](README.zh.md)
 
-[![CI](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hub/actions/workflows/test.yml)
+[![CI](https://github.com/JS-banana/agy-hud/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JS-banana/agy-hud/actions/workflows/test.yml)
 [![Node.js >= 22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-AGY Hub is a configurable terminal status line for the Antigravity CLI (`agy`). It keeps your active model, context usage, quota reset countdowns, session cost, Git/Jujutsu status, and live tool/subagent activity visible at a glance—and adapts automatically to narrow terminals.
+AGY HUD is a configurable terminal status line for the Antigravity CLI (`agy`). It keeps your active model, context usage, quota reset countdowns, session cost, Git/Jujutsu status, and live tool/subagent activity visible at a glance—and adapts automatically to narrow terminals.
 
-![AGY Hub in Antigravity CLI showing the model, estimated session cost, Git branch, agent mode, context usage, and 5-hour and weekly quotas](docs/assets/agy-hub-terminal-preview.png)
+![AGY HUD in Antigravity CLI showing the model, estimated session cost, Git branch, agent mode, context usage, and 5-hour and weekly quotas](docs/assets/agy-hud-terminal-preview.png)
 
 ## Features
 
@@ -56,21 +56,21 @@ Requires **macOS or Linux**, **Node.js 22+**, and an **`agy` version that suppor
 Send this prompt to your coding agent:
 
 ```text
-Set up AGY Hub for my Antigravity CLI following skills/agy-hub/SKILL.md in https://github.com/JS-banana/agy-hub. Preview the HUD before enabling it and register /agy-hub.
+Set up AGY HUD for my Antigravity CLI following skills/agy-hud/SKILL.md in https://github.com/JS-banana/agy-hud. Preview the HUD before enabling it and register /agy-hud.
 ```
 
-If `/agy-hub` is already installed, run:
+If `/agy-hud` is already installed, run:
 
 ```text
-/agy-hub Install the HUD and show me the preview first
+/agy-hud Install the HUD and show me the preview first
 ```
 
 ### Option 2: Interactive terminal wizard
 
 ```sh
 mkdir -p "$HOME/.local/share"
-git clone https://github.com/JS-banana/agy-hub.git "$HOME/.local/share/agy-hub"
-cd "$HOME/.local/share/agy-hub"
+git clone https://github.com/JS-banana/agy-hud.git "$HOME/.local/share/agy-hud"
+cd "$HOME/.local/share/agy-hud"
 node src/cli.js setup
 ```
 
@@ -84,10 +84,10 @@ agy --settings "$(node src/cli.js settings)"
 
 ## Customize
 
-Once `/agy-hub` is loaded, ask for changes in plain language from any workspace:
+Once `/agy-hud` is loaded, ask for changes in plain language from any workspace:
 
 ```text
-/agy-hub Enable cost estimates, always show weekly quota, and show tools and subagents
+/agy-hud Enable cost estimates, always show weekly quota, and show tools and subagents
 ```
 
 Or adjust from the terminal using the wizard (`node src/cli.js setup --configure-only`) or CLI:
@@ -113,14 +113,14 @@ See [Configuration reference](docs/configuration.md) for all options, colors, JS
 
 ## Diagnostics, Upgrade & Uninstall
 
-- **Check & replay**: Run `node src/cli.js doctor` (or `/agy-hub doctor`) to verify bindings and config, `node src/cli.js report` for an anonymized diagnostic summary, or `node src/cli.js preview --last` to replay the last recorded frame.
-- **Upgrade**: Pull updates and refresh bindings from your AGY Hub directory:
+- **Check & replay**: Run `node src/cli.js doctor` (or `/agy-hud doctor`) to verify bindings and config, `node src/cli.js report` for an anonymized diagnostic summary, or `node src/cli.js preview --last` to replay the last recorded frame.
+- **Upgrade**: Pull updates and refresh bindings from your AGY HUD directory:
   ```sh
   git pull --ff-only
   node src/cli.js install
-  node src/cli.js skill install # if using /agy-hub
+  node src/cli.js skill install # if using /agy-hud
   ```
-- **Temporary disable**: Run `AGY_HUB_DISABLE=1 agy`.
+- **Temporary disable**: Run `AGY_HUD_DISABLE=1 agy`.
 - **Uninstall**: Restore your previous status line configuration:
   ```sh
   node src/cli.js skill uninstall # if installed
@@ -138,4 +138,4 @@ npm run check
 
 ## Acknowledgements
 
-AGY Hub draws inspiration from [claude-hud](https://github.com/jarrodwatts/claude-hud). Thanks to its author and contributors.
+AGY HUD draws inspiration from [claude-hud](https://github.com/jarrodwatts/claude-hud). Thanks to its author and contributors.

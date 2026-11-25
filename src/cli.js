@@ -9,7 +9,7 @@ import { presetConfig, presetNames } from './presets.js';
 import { readInput } from './runtime/input.js';
 import { install, printSettings, uninstall } from './setup.js';
 
-const help = `Usage: agy-hub [command]
+const help = `Usage: agy-hud [command]
 
 With no command, render Antigravity CLI statusline JSON from stdin.
 
@@ -29,9 +29,9 @@ With no command, render Antigravity CLI statusline JSON from stdin.
   report     Print diagnostic metadata without paths or account information.
   hooks      Print optional Antigravity lifecycle hook definitions.
   skill <install|uninstall|path>
-             Manage the local /agy-hub skill for Antigravity CLI.
+             Manage the local /agy-hud skill for Antigravity CLI.
   --extra-cmd '<command>'
-             Add its first line to the HUD when AGY_HUB_ALLOW_EXTRA_CMD=1.
+             Add its first line to the HUD when AGY_HUD_ALLOW_EXTRA_CMD=1.
   settings   Print a JSON override for agy --settings.
   install    Set the HUD as the statusline for new agy sessions.
   uninstall  Restore the previous statusline settings.
@@ -83,12 +83,12 @@ async function configure(command, args) {
   if (action === 'init') {
     const { values } = parseArgs({ args: rest, options: { preset: { type: 'string' } } });
     const { created, path } = JSON.parse(preferences('init', values.preset));
-    return write(created ? `Created ${path}.` : `Configuration already exists at ${path}. Use agy-hub config set to update it.`);
+    return write(created ? `Created ${path}.` : `Configuration already exists at ${path}. Use agy-hud config set to update it.`);
   }
   if (action === 'schema' && rest.length === 1 && rest[0] === '--json-schema') return write(preferences('json-schema'));
   if (action === 'set' && rest.length === 1) return write(preferences('set', rest[0]));
   if (rest.length || !['show', 'check', 'path', 'undo', 'schema'].includes(action)) {
-    throw new Error('Use agy-hub --help to see the config commands.');
+    throw new Error('Use agy-hud --help to see the config commands.');
   }
   const result = preferences(action);
   if (action === 'check' && !JSON.parse(result).valid) process.exitCode = 1;
@@ -125,12 +125,12 @@ async function main([command, ...args]) {
   if (command === 'settings') return write(printSettings());
   if (command === 'install') return write(await install());
   if (command === 'uninstall') return write(await uninstall());
-  throw new Error(`Unknown command: ${command}. Run agy-hub --help.`);
+  throw new Error(`Unknown command: ${command}. Run agy-hud --help.`);
 }
 
 try {
   await main(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`agy-hub: ${error.message}\n`);
+  process.stderr.write(`agy-hud: ${error.message}\n`);
   process.exitCode = 1;
 }
