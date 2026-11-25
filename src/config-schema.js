@@ -27,7 +27,7 @@ const elements = /** @type {const} */ ([
   'project', 'addedDirs', 'context', 'usage', 'promptCache', 'cacheHitRate', 'memory', 'environment',
   'tools', 'skills', 'mcp', 'agents', 'sessionTime', 'tasks', 'sessionTokens', 'cost',
 ]);
-const firstLine = /** @type {const} */ (['model', 'project', 'agent', 'sessionName', 'version', 'extra', 'duration', 'cost', 'speed', 'auth']);
+const firstLine = /** @type {const} */ (['model', 'project', 'agent', 'sessionName', 'version', 'extra', 'duration', 'cost', 'speed', 'auth', 'custom']);
 const contextWarning = 70;
 const contextCritical = 85;
 const terminalTextLimit = 250;

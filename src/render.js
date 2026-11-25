@@ -85,8 +85,11 @@ function header(frame, compact) {
     ['speed', [dim(display.showSpeed && activity?.speed != null ? `${frame.words.output}: ${activity.speed.toFixed(1)} tok/s` : '')]],
     ['auth', [dim(account(frame))]],
   ]);
-  const parts = [...new Set([...config.projectLineOrder, ...entries.keys()])].flatMap((key) => entries.get(key) ?? []);
   const custom = display.customLine ? style(display.customLine, 'custom') : '';
+  const orderedCustom = config.projectLineOrder.includes('custom');
+  if (orderedCustom) entries.set('custom', [custom]);
+  const parts = [...new Set([...config.projectLineOrder, ...entries.keys()])].flatMap((key) => entries.get(key) ?? []);
+  if (orderedCustom) return parts;
   return display.customLinePosition === 'first' ? [custom, ...parts] : [...parts, custom];
 }
 

@@ -436,3 +436,31 @@ test('counts local customizations up to the repository root and truncates linked
   assert.match(projectLine, /\x1b\]8;;\x1b\\/);
   assert.ok(visibleWidth(stripColor(projectLine)) <= 14);
 });
+
+test('places customLine via projectLineOrder while preserving customLinePosition fallback', () => {
+  const rich = { ...sample, cycle_mode: 'auto', agent_state: 'tool_use' };
+  const ordered = {
+    projectLineOrder: ['model', 'project', 'custom', 'agent'],
+    display: { customLine: 'tag', customLinePosition: 'first', showAgentState: true },
+  };
+  assert.equal(
+    view(rich, ordered).split('\n')[0],
+    '[Gemini Flash ◑ high] │ project │ tag │ ◐ tool use · auto',
+  );
+  assert.equal(
+    view({ ...rich, terminal_width: 140 }, { ...ordered, lineLayout: 'compact' }).split('\n')[0],
+    '[Gemini Flash ◑ high] ████░░░░░░ 43% | project | tag | ◐ tool use · auto | Usage ███░░░░░░░ 25% (1h 34m / 5h)',
+  );
+  assert.match(
+    view(rich, { display: { customLine: 'tag', customLinePosition: 'first', showAgentState: true } }).split('\n')[0],
+    /^tag │ \[Gemini Flash/,
+  );
+  assert.match(
+    view(rich, { display: { customLine: 'tag', customLinePosition: 'last', showAgentState: true } }).split('\n')[0],
+    /◐ tool use · auto │ tag$/,
+  );
+  assert.equal(
+    view(rich, { projectLineOrder: ['model', 'project', 'custom', 'agent'], display: { customLine: '', showAgentState: true } }).split('\n')[0],
+    '[Gemini Flash ◑ high] │ project │ ◐ tool use · auto',
+  );
+});
