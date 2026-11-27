@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows (`win32`) support for setup, `cmd.exe` status line and hook command quoting, `--extra-cmd` probes, skill management, and Git/Jujutsu status probes (resolving `.exe` binaries from `PATH` entries rather than the repository working directory).
+
 ## [0.6.0] - 2026-11-25
 
 ### Added

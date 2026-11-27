@@ -54,7 +54,7 @@ test('preset preview is independent of an existing configuration', (t) => {
   });
   assert.match(preview, /^\[Gemini [^\n]+\nContext /);
   const resolved = execFileSync(process.execPath, [cli, 'config', 'path'], {
-    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: '' }, encoding: 'utf8',
+    env: { ...process.env, HOME: root, USERPROFILE: root, AGY_HUD_CONFIG: '' }, encoding: 'utf8',
   }).trim();
   assert.equal(resolved, join(root, '.gemini', 'antigravity-cli', 'agy-hud.json'));
 });
@@ -67,7 +67,7 @@ test('a partial replay file is a cache miss in diagnostics', (t) => {
   writeFileSync(join(data, 'preview.json'), '{"state":{},"details":{}}');
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const output = execFileSync(process.execPath, [cli, 'report'], {
-    env: { ...process.env, HOME: root, AGY_HUD_DATA_DIR: data, AGY_HUD_CONFIG: join(root, 'hud.json') }, encoding: 'utf8',
+    env: { ...process.env, HOME: root, USERPROFILE: root, AGY_HUD_DATA_DIR: data, AGY_HUD_CONFIG: join(root, 'hud.json') }, encoding: 'utf8',
   });
   const report = JSON.parse(output);
   assert.equal(report.capturedFrame, null);
@@ -75,7 +75,7 @@ test('a partial replay file is a cache miss in diagnostics', (t) => {
   assert.doesNotMatch(output, /agy-hud-replay-/);
 });
 
-test('a timed-out extra command leaves memory and hook workspace counts in the frame', { skip: process.platform === 'win32' }, (t) => {
+test('a timed-out extra command leaves memory and hook workspace counts in the frame', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'agy-hud-probes-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const cwd = join(root, 'project');
@@ -90,19 +90,23 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   recordHook('SessionStart', { conversationId, workspacePaths: [cwd, shared] }, data);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const run = (command, allow = '1') => execFileSync(process.execPath, [cli, '--extra-cmd', command], {
-    env: { ...process.env, HOME: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: data,
+    env: { ...process.env, HOME: root, USERPROFILE: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: data,
       AGY_HUD_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
     input: JSON.stringify({ cwd, model: { display_name: 'Probes' }, conversation_id: conversationId }),
-    encoding: 'utf8', timeout: 2500,
+    encoding: 'utf8', timeout: 5000,
   });
-  const command = 'printf "extra-label\\nsecond line\\n"';
-  const labeled = run(command);
+  const node = JSON.stringify(process.execPath);
+  const print = `${node} -e "process.stdout.write('extra-label\\nsecond line\\n')"`;
+  const noisyStderr = `${node} -e "process.stderr.write('x'.repeat(5000));process.stdout.write('extra-label\\nsecond line\\n')"`;
+  const overflowStdout = `${node} -e "process.stdout.write('extra-label\\n' + 'x'.repeat(5000))"`;
+  const hang = `${node} -e "process.stdout.write('extra-label\\n');setTimeout(() => {}, 5000)"`;
+  const labeled = run(print);
   assert.match(labeled, /extra-label/);
   assert.doesNotMatch(labeled, /second line/);
-  assert.match(run('head -c 5000 /dev/zero >&2; ' + command), /extra-label/);
-  assert.doesNotMatch(run(command + '; head -c 5000 /dev/zero'), /extra-label/);
-  assert.doesNotMatch(run(command, '0'), /extra-label/);
-  const frame = run(command + ' && exec sleep 5');
+  assert.match(run(noisyStderr), /extra-label/);
+  assert.doesNotMatch(run(overflowStdout), /extra-label/);
+  assert.doesNotMatch(run(print, '0'), /extra-label/);
+  const frame = run(hang);
   assert.doesNotMatch(frame, /extra-label/);
   assert.match(frame, /\[Probes\]/);
   assert.match(frame, /Approx RAM/);
@@ -122,7 +126,7 @@ test('the Orchestrator badge takes its reasoning effort from the configured plan
   const run = (model, display = { showEffortLevel: true }, extraPayload = {}) => {
     writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display }));
     return execFileSync(process.execPath, [cli], {
-      env: { ...process.env, HOME: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(root, 'data'), NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
+      env: { ...process.env, HOME: root, USERPROFILE: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(root, 'data'), NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
       input: JSON.stringify({ cwd: root, model, ...extraPayload }), encoding: 'utf8', timeout: 2500,
     });
   };

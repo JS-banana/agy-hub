@@ -22,9 +22,14 @@ const PLANNER_EFFORT = new Map(Object.entries({
 
 /** @param {string} [command] */
 async function extraLabel(command) {
-  if (!command || process.env.AGY_HUD_ALLOW_EXTRA_CMD !== '1' || process.platform === 'win32') return '';
-  const { status, stdout } = await readCommand('/bin/sh', ['-c', command], { timeout: 300, maxBuffer: 4096 });
-  return status === 0 ? labelText(stdout.split('\n', 1)[0]) : '';
+  if (!command || process.env.AGY_HUD_ALLOW_EXTRA_CMD !== '1') return '';
+  const isWindows = process.platform === 'win32';
+  const shell = isWindows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh';
+  const args = isWindows ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command];
+  const { status, stdout } = await readCommand(shell, args, {
+    timeout: isWindows ? 1000 : 300, maxBuffer: 4096, windowsVerbatimArguments: isWindows,
+  });
+  return status === 0 ? labelText(stdout.split(/\r?\n/, 1)[0]) : '';
 }
 
 /** agy omits model.effort for the Orchestrator; its planner name in settings carries the level, e.g. "Gemini 4 Neon (High)".

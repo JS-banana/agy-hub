@@ -1,17 +1,34 @@
 import { spawnSync } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
-import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { readCommand } from './runtime/command.js';
 
 const readOptions = {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
-  timeout: 250, killSignal: 'SIGKILL', maxBuffer: 256 * 1024,
+  timeout: process.platform === 'win32' ? 1000 : 250, killSignal: 'SIGKILL', maxBuffer: 256 * 1024,
 };
 
 function commandEnvironment() {
   const path = process.env.PATH?.split(delimiter).filter(isAbsolute).join(delimiter);
-  return { ...process.env, PATH: path || '/usr/bin:/bin', GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' };
+  const fallback = process.platform === 'win32'
+    ? join(process.env.SystemRoot || 'C:\\Windows', 'System32')
+    : '/usr/bin:/bin';
+  return { ...process.env, PATH: path || fallback, GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' };
+}
+
+// Resolve an explicit .exe from trusted PATH entries on Windows so CreateProcessW
+// never searches the untrusted repository working directory first.
+function resolveExecutable(name) {
+  if (process.platform !== 'win32') return name;
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!isAbsolute(dir)) continue;
+    const candidate = join(dir, `${name}.exe`);
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch { /* Continue searching PATH. */ }
+  }
+  return null;
 }
 
 // `git status` can invoke a clean filter configured by the checkout. Disable all
@@ -108,15 +125,21 @@ function* addLineDiff(git, status, oid, overrides) {
 function* addWorktreeInfo(git, status, showWorktree) {
   const result = yield git(['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
   if (result.status !== 0) return;
-  const paths = result.stdout.replace(/\n$/, '').split('\n');
-  if (paths.length !== 3 || !paths.every(isAbsolute)) return;
-  const [root, worktreeGitDir, sharedGitDir] = paths;
+  const rawPaths = result.stdout.replace(/\r?\n$/, '').split(/\r?\n/);
+  if (rawPaths.length !== 3 || !rawPaths.every(isAbsolute)) return;
+  const [root, worktreeGitDir, sharedGitDir] = rawPaths.map((p) => resolve(p));
   status.root = root;
-  if (showWorktree && dirname(worktreeGitDir) === join(sharedGitDir, 'worktrees')) status.worktree = basename(root);
+  const worktreesDir = join(sharedGitDir, 'worktrees');
+  const linked = process.platform === 'win32'
+    ? dirname(worktreeGitDir).toLowerCase() === worktreesDir.toLowerCase()
+    : dirname(worktreeGitDir) === worktreesDir;
+  if (showWorktree && linked) status.worktree = basename(root);
 }
 
 function* readGitStatus(cwd, { showAheadBehind, showDirty, showFileStats, showWorktree }, run) {
-  const git = (args) => run('git', ['-C', cwd, '--no-optional-locks', '-c', 'core.fsmonitor=false',
+  const executable = resolveExecutable('git');
+  if (!executable) return null;
+  const git = (args) => run(executable, ['-C', cwd, '--no-optional-locks', '-c', 'core.fsmonitor=false',
     '-c', 'protocol.allow=never', ...args], { ...readOptions, env: commandEnvironment() });
   const overrides = filterOverrides(yield git(['config', '--null', '--name-only', '--get-regexp', '^filter\\.']));
   const untracked = showFileStats ? 'all' : showDirty ? 'normal' : 'no';
@@ -164,13 +187,15 @@ const jjTemplate = 'change_id.shortest(8) ++ "\\x1f" ++ self.local_bookmarks().m
   + ' ++ "\\x1f" ++ if(self.empty(), "0", "1") ++ "\\x1f" ++ if(self.conflict(), "1", "0")';
 
 function* readJjStatus(cwd, io) {
+  const executable = resolveExecutable('jj');
+  if (!executable) return null;
   const metadata = join(cwd, '.jj');
   const repo = join(metadata, 'repo');
   // Older jj versions load config from metadata in the workspace. A repo pointer
   // could also redirect us to legacy config outside the workspace we inspected.
   if (!(yield io.pathInfo(repo))?.isDirectory() || (yield io.pathInfo(join(metadata, 'config.toml')))
     || (yield io.pathInfo(join(repo, 'config.toml')))) return null;
-  const result = yield io.run('jj', ['--ignore-working-copy', '--at-operation=@', '--no-pager',
+  const result = yield io.run(executable, ['--ignore-working-copy', '--at-operation=@', '--no-pager',
     'log', '-r', '@', '--no-graph', '--color', 'never', '-T', jjTemplate], {
     ...readOptions, cwd, maxBuffer: 16 * 1024, env: { ...commandEnvironment(), JJ_CONFIG: '' },
   });
@@ -187,8 +212,6 @@ function* readJjStatus(cwd, io) {
 // and parsing stay in one place. Each yielded read is a result or a promise.
 function* probe(cwd, gitConfig, vcs, jjConfig, io) {
   if (typeof cwd !== 'string' || !isAbsolute(cwd) || cwd.includes('\0') || (vcs && vcs !== 'git' && vcs !== 'jj')) return null;
-  // Windows resolves unqualified programs from the working directory before PATH.
-  if (process.platform === 'win32') return null;
   const jjRoot = jjConfig?.enabled || vcs === 'jj' ? yield* findJjRoot(cwd, io) : null;
   if (vcs === 'jj' && !jjRoot) return null;
   if (jjRoot) {

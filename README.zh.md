@@ -49,7 +49,7 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 
 ## 快速开始
 
-环境要求：**macOS 或 Linux**、**Node.js 22+**，以及支持自定义状态栏的 **`agy`**。由于 `agy` 会按绝对路径调用状态栏脚本，请将代码保存在固定目录中。
+环境要求：**macOS、Linux 或 Windows**、**Node.js 22+**，以及支持自定义状态栏的 **`agy`**。由于 `agy` 会按绝对路径调用状态栏脚本，请将代码保存在固定目录中。
 
 ### 方式一：让编程 Agent 帮你接入（推荐）
 
@@ -67,10 +67,21 @@ Context █████░░░░░ 45% │ Usage ███░░░░░░
 
 ### 方式二：终端交互向导手动安装
 
+**macOS / Linux：**
+
 ```sh
 mkdir -p "$HOME/.local/share"
 git clone https://github.com/JS-banana/agy-hud.git "$HOME/.local/share/agy-hud"
 cd "$HOME/.local/share/agy-hud"
+node src/cli.js setup --prompt-language zh-Hans
+```
+
+**Windows（PowerShell）：**
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.local\share" | Out-Null
+git clone https://github.com/JS-banana/agy-hud.git "$HOME\.local\share\agy-hud"
+Set-Location "$HOME\.local\share\agy-hud"
 node src/cli.js setup --prompt-language zh-Hans
 ```
 

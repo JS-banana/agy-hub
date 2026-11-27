@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { ChildProcess, execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { gitStatus, gitStatusAsync } from '../src/git.js';
 
 const gitOptions = { showFileStats: true, showWorktree: true, showDirty: true };
-const gitAvailable = process.platform !== 'win32' && spawnSync('git', ['--version']).status === 0;
-const jjAvailable = process.platform !== 'win32' && spawnSync('jj', ['--version']).status === 0;
+const gitAvailable = spawnSync('git', ['--version']).status === 0;
+const jjAvailable = spawnSync('jj', ['--version']).status === 0;
 
 function temp(context) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agy-hud-vcs-')));
@@ -17,7 +17,7 @@ function temp(context) {
 }
 
 function git(cwd, ...args) {
-  return execFileSync('git', ['-C', cwd, '-c', 'user.name=AGY HUD Tests', '-c', 'user.email=test@example.invalid',
+  return execFileSync('git', ['-C', cwd, '-c', 'core.autocrlf=false', '-c', 'user.name=AGY HUD Tests', '-c', 'user.email=test@example.invalid',
     '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
@@ -31,15 +31,21 @@ async function statusFromBoth(cwd, options, vcs, jjOptions) {
   return status;
 }
 
-test('a missing Git binary resolves to null and cancels the probe timeout', { skip: process.platform === 'win32' }, async (context) => {
+test('a missing Git binary resolves to null and cancels the probe timeout', async (context) => {
   const cwd = temp(context);
+  const emptyPath = temp(context);
   const env = process.env;
   context.after(() => { process.env = env; });
-  process.env = { ...env, PATH: cwd };
+  process.env = { ...env, PATH: emptyPath };
+  if (process.platform === 'win32') {
+    // Even if an untrusted checkout contains git.exe, PATH resolution must ignore cwd.
+    copyFileSync(process.execPath, join(cwd, 'git.exe'));
+  }
   context.mock.timers.enable({ apis: ['setTimeout'] });
   const kill = context.mock.method(ChildProcess.prototype, 'kill');
 
   assert.equal(await gitStatusAsync(cwd), null);
+  assert.equal(gitStatus(cwd), null);
   context.mock.timers.runAll();
   assert.equal(kill.mock.callCount(), 0);
 });
@@ -62,8 +68,9 @@ test('Git combines index and worktree stats, with rename, binary and nested untr
   git(root, 'add', 'nested/edit.txt');
   writeFileSync(join(root, 'nested', 'edit.txt'), 'keep\nstaged\nunstaged\n');
   git(root, 'rm', 'delete.txt');
-  writeFileSync(join(root, ' add\tfile.txt'), 'staged\n');
-  git(root, 'add', ' add\tfile.txt');
+  const oddName = process.platform === 'win32' ? ' add (file).txt' : ' add\tfile.txt';
+  writeFileSync(join(root, oddName), 'staged\n');
+  git(root, 'add', oddName);
   writeFileSync(join(root, 'contents.bin'), Buffer.from([0, 1, 3]));
   mkdirSync(join(root, 'scratch'));
   writeFileSync(join(root, 'scratch', 'one'), '1');
@@ -83,8 +90,9 @@ test('Git combines index and worktree stats, with rename, binary and nested untr
     basename: 'new name.txt', fullPath: 'new name.txt', type: 'modified', lineDiff: { added: 1, deleted: 0 },
   });
   assert.deepEqual(files.get('nested/edit.txt').lineDiff, { added: 2, deleted: 1 });
-  assert.deepEqual(files.get(' add\tfile.txt').lineDiff, { added: 1, deleted: 0 });
+  assert.deepEqual(files.get(oddName).lineDiff, { added: 1, deleted: 0 });
   assert.equal(files.get('contents.bin').lineDiff, undefined);
+  assert.equal(existsSync(join(root, '.git', 'index')), true);
   assert.deepEqual(readFileSync(join(root, '.git', 'index')), index);
 });
 

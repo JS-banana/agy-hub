@@ -2,7 +2,7 @@
 import { constants } from 'node:fs';
 import { access, chmod, lstat, mkdir, mkdtemp, realpath, rename, rm, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { isRecord } from './objects.js';
@@ -18,19 +18,37 @@ export const settingsPath = () => join(homedir(), '.gemini', 'antigravity-cli', 
 const SETTINGS_BYTES = 1024 * 1024;
 const entryPoint = fileURLToPath(new URL('./cli.js', import.meta.url));
 
-function requirePosix() {
-  if (process.platform === 'win32') throw new Error('AGY HUD setup requires macOS or Linux.');
-}
+const WIN_BOOTSTRAP_RE = /^set NoDefaultCurrentDirectoryInExePath=1&&set PATH=([^"\r\n;%]+);%PATH%&&([^\s"&|<>()^%\r\n]+) -e const\{pathToFileURL:u\}=require\^\('node:url'\^\),a=JSON\.parse\^\(Buffer\.from\^\('([A-Za-z0-9_-]+)','base64url'\^\)\+''\^\);process\.argv\.splice\^\(1,0,\.\.\.a\^\);import\^\(u\^\(a\[0\]\^\)\.href\^\) --$/;
 
 /** @param {string} value */
-function quoteShell(value) {
+function quotePosix(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** @param {BindingOptions} [options] */
-export function cliCommand({ executable = process.execPath, script = entryPoint, extraCommand } = {}) {
-  const base = `${quoteShell(executable)} ${quoteShell(script)}`;
-  return extraCommand === undefined ? base : `${base} --extra-cmd ${quoteShell(extraCommand)}`;
+/** Build a quote-free cmd.exe command so Go's exec.Command("cmd", "/c", cmd)
+ *  does not turn double quotes into literal \" tokens that cmd.exe rejects.
+ *  @param {{executable: string, script: string, extraCommand?: string}} options
+ */
+function windowsCliCommand({ executable, script, extraCommand }) {
+  if (/[\r\n\0]/.test(executable) || /[\r\n\0]/.test(script) || (extraCommand !== undefined && /\0/.test(extraCommand))) {
+    throw new Error('Command arguments on Windows cannot contain control characters.');
+  }
+  const exeDir = win32.dirname(executable);
+  const exeName = win32.basename(executable);
+  if (!exeDir || !exeName || /[";%]/.test(exeDir) || /[\s"&|<>()^%;]/.test(exeName)) {
+    throw new Error('Unsupported Windows executable path for cmd.exe statusline invocation.');
+  }
+  const escapedDir = exeDir.replace(/([&|<>()^!])/g, '^$1');
+  const argv = extraCommand === undefined ? [script] : [script, '--extra-cmd', extraCommand];
+  const encoded = Buffer.from(JSON.stringify(argv)).toString('base64url');
+  return `set NoDefaultCurrentDirectoryInExePath=1&&set PATH=${escapedDir};%PATH%&&${exeName} -e const{pathToFileURL:u}=require^('node:url'^),a=JSON.parse^(Buffer.from^('${encoded}','base64url'^)+''^);process.argv.splice^(1,0,...a^);import^(u^(a[0]^).href^) --`;
+}
+
+/** @param {BindingOptions & {platform?: NodeJS.Platform}} [options] */
+export function cliCommand({ executable = process.execPath, script = entryPoint, extraCommand, platform = process.platform } = {}) {
+  if (platform === 'win32') return windowsCliCommand({ executable, script, extraCommand });
+  const base = `${quotePosix(executable)} ${quotePosix(script)}`;
+  return extraCommand === undefined ? base : `${base} --extra-cmd ${quotePosix(extraCommand)}`;
 }
 
 /** @param {BindingOptions} [options] */
@@ -40,7 +58,6 @@ function createStatusLine(options) {
 
 /** @param {BindingOptions} [options] */
 export function printSettings(options) {
-  requirePosix();
   return JSON.stringify({ statusLine: createStatusLine(options) });
 }
 
@@ -95,7 +112,6 @@ function resolveSettings(path) {
 
 /** @param {string} file @param {boolean} createDirectory @param {(path: string, backupPath: string) => Promise<string>} operation */
 async function withSettingsLock(file, createDirectory, operation) {
-  requirePosix();
   const path = await resolveSettings(file);
   if (createDirectory) await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const lock = `${path}.agy-hud.lock`;
@@ -236,11 +252,31 @@ export async function uninstall({ settingsPath: file = settingsPath() } = {}) {
   });
 }
 
+/** @param {string} command */
+function parseCommandWords(command) {
+  if (process.platform === 'win32') {
+    const match = WIN_BOOTSTRAP_RE.exec(command);
+    if (!match) return [];
+    const [, escapedDir, exeName, encoded] = match;
+    const executable = win32.join(escapedDir.replace(/\^([&|<>()^!])/g, '$1'), exeName);
+    try {
+      const argv = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+      if (!Array.isArray(argv)) return [];
+      if (argv.length === 1 && typeof argv[0] === 'string') return [executable, argv[0]];
+      if (argv.length === 3 && argv[1] === '--extra-cmd' && typeof argv[0] === 'string' && typeof argv[2] === 'string') {
+        return [executable, argv[0], argv[2]];
+      }
+    } catch { /* Malformed encoded payload is treated as a custom statusline. */ }
+    return [];
+  }
+  return [...command.matchAll(/'((?:[^']|'\\'')*)'/g)].map((match) => match[1].replaceAll("'\\''", "'"));
+}
+
 /** @param {unknown} command */
 function bindingPaths(command) {
   // Accept the canonical invocation and its one optional quoted argument.
   if (typeof command !== 'string') return null;
-  const words = [...command.matchAll(/'((?:[^']|'\\'')*)'/g)].map((match) => match[1].replaceAll("'\\''", "'"));
+  const words = parseCommandWords(command);
   const [executable, script, extraCommand] = words;
   if ((words.length !== 2 && words.length !== 3) || !isAbsolute(executable) || !isAbsolute(script)) return null;
   const base = createStatusLine({ executable, script }).command;
@@ -259,15 +295,16 @@ async function usableFile(path, mode) {
 
 /** @param {string} name */
 export async function commandOnPath(name, path = process.env.PATH ?? '') {
-  const executable = process.platform === 'win32' ? `${name}.exe` : name;
+  const extensions = process.platform === 'win32'
+    ? (process.env.PATHEXT?.split(';').filter(Boolean) ?? ['.EXE', '.CMD', '.BAT', '.COM'])
+    : [''];
   const mode = process.platform === 'win32' ? constants.F_OK : constants.X_OK;
   const candidates = path.split(delimiter).filter(isAbsolute);
-  const matches = await Promise.all(candidates.map((dir) => usableFile(join(dir, executable), mode)));
+  const matches = await Promise.all(candidates.flatMap((dir) => extensions.map((ext) => usableFile(join(dir, `${name}${ext}`), mode))));
   return matches.some(Boolean);
 }
 
 export async function diagnoseInstallation({ settingsPath: file = settingsPath() } = {}) {
-  if (process.platform === 'win32') return { state: 'unsupported', enabled: false };
   let original;
   let target;
   try {
@@ -295,8 +332,9 @@ export async function diagnoseInstallation({ settingsPath: file = settingsPath()
   if (!configured) return { state: 'not-configured', enabled: false };
   if (!current && !savedBinding(statusLine?.command, backup)) return { state: 'custom', enabled };
 
+  const executableMode = process.platform === 'win32' ? constants.F_OK : constants.X_OK;
   const [nodeAvailable, entryAvailable] = paths ? await Promise.all([
-    usableFile(paths.executable, constants.X_OK),
+    usableFile(paths.executable, executableMode),
     usableFile(paths.script, constants.R_OK),
   ]) : [false, false];
   const state = !nodeAvailable || !entryAvailable ? 'broken' : !current ? 'stale' : enabled ? 'active' : 'disabled';

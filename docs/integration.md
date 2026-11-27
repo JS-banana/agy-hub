@@ -13,7 +13,7 @@ AGY HUD renders one frame each time `agy` supplies status line data. The default
 | Session, mode, and tasks | Session tokens, current turn cache data, background tasks, and artifact counts come from `agy`. Mode comes from the first populated field among `cycle_mode`, `mode`, and `agent_mode`. Session duration, last reply time, and throughput depend on logs or hooks. The public payload lacks exact cache expiration and background task details. |
 | Cost, memory, and config counts | Session cost uses the reported amount when available. Memory and config counts come from the local system and files. |
 
-OSC 8 file links depend on support in `agy` and the terminal. Installation and VCS probes currently support macOS and Linux.
+OSC 8 file links depend on support in `agy` and the terminal. Installation and VCS probes support macOS, Linux, and Windows.
 
 ## Session cost estimates
 

@@ -112,7 +112,7 @@ function restoreWindow(window, now) {
 export function externalQuota(state, display) {
   const { quota, now } = state;
   if (!quota.key) return quota;
-  const filename = (path) => path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
+  const filename = (path) => /^~[/\\]/.test(path) ? join(homedir(), path.slice(2)) : path;
   const keys = ['short', 'weekly'];
   const active = (window) => Boolean(window && !window.expired);
   const disabled = (key) => quota.disabled?.includes(key);

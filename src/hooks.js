@@ -1,15 +1,13 @@
 import { readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { toolCall } from './activity.js';
 import { dataDir, readObject, writeObject } from './local-data.js';
 import { isRecord } from './objects.js';
+import { cliCommand } from './setup.js';
 import { nonnegative, validConversation } from './state.js';
 import { labelText } from './terminal.js';
 
 const EVENTS = ['SessionStart', 'PreInvocation', 'PostInvocation', 'PreToolUse', 'PostToolUse'];
-const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
-const cli = fileURLToPath(new URL('./cli.js', import.meta.url));
 const key = (value) => Number.isSafeInteger(value) && value >= 0;
 const TOOL_KINDS = new Set([undefined, 'tools', 'skills', 'mcp']);
 const TOOL_CACHE_BYTES = 128 * 1024;
@@ -17,7 +15,7 @@ const RUNNING_TTL = 300_000;
 
 export function hookDefinitions() {
   const definitions = EVENTS.map((event) => {
-    const handler = { type: 'command', command: `${quote(process.execPath)} ${quote(cli)} hook ${event}`, timeout: 2 };
+    const handler = { type: 'command', command: `${cliCommand()} hook ${event}`, timeout: 2 };
     return [event, event.endsWith('ToolUse') ? [{ matcher: '*', hooks: [handler] }] : [handler]];
   });
   return { 'agy-hud': Object.fromEntries(definitions) };

@@ -49,7 +49,7 @@ On narrow terminals, bars shorten and rows wrap automatically (`node src/cli.js 
 
 ## Quick Start
 
-Requires **macOS or Linux**, **Node.js 22+**, and an **`agy` version that supports custom status lines**. Keep the local checkout at a stable path because `agy` invokes it by absolute path.
+Requires **macOS, Linux, or Windows**, **Node.js 22+**, and an **`agy` version that supports custom status lines**. Keep the local checkout at a stable path because `agy` invokes it by absolute path.
 
 ### Option 1: Ask your coding agent (Recommended)
 
@@ -67,10 +67,21 @@ If `/agy-hud` is already installed, run:
 
 ### Option 2: Interactive terminal wizard
 
+**macOS / Linux:**
+
 ```sh
 mkdir -p "$HOME/.local/share"
 git clone https://github.com/JS-banana/agy-hud.git "$HOME/.local/share/agy-hud"
 cd "$HOME/.local/share/agy-hud"
+node src/cli.js setup
+```
+
+**Windows (PowerShell):**
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.local\share" | Out-Null
+git clone https://github.com/JS-banana/agy-hud.git "$HOME\.local\share\agy-hud"
+Set-Location "$HOME\.local\share\agy-hud"
 node src/cli.js setup
 ```
 

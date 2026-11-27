@@ -8,7 +8,7 @@ npm run hooks:install
 npm run check
 ```
 
-`npm run check` runs type checks, behavior tests, and a setup and uninstall using a locally unpacked release archive. CI runs the same checks on Linux and macOS with Node.js 22 and 24. The macOS Node.js 24 job also installs Jujutsu for its integration test.
+`npm run check` runs type checks, behavior tests, and a setup and uninstall using a locally unpacked release archive. CI runs the same checks on Linux, macOS, and Windows with Node.js 22 and 24. The macOS Node.js 24 job also installs Jujutsu for its integration test.
 
 ## Pull requests
 

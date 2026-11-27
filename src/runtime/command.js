@@ -3,12 +3,14 @@ import { spawn } from 'node:child_process';
 
 /** Read bounded UTF-8 stdout from an optional status line probe.
  *  @param {string} command @param {string[]} args
- *  @param {{cwd?: string, env?: NodeJS.ProcessEnv, timeout: number, maxBuffer: number}} options
+ *  @param {{cwd?: string, env?: NodeJS.ProcessEnv, timeout: number, maxBuffer: number, windowsVerbatimArguments?: boolean}} options
  *  @returns {Promise<{status: number | null, stdout: string}>}
  */
-export async function readCommand(command, args, { cwd, env, timeout, maxBuffer }) {
+export async function readCommand(command, args, { cwd, env, timeout, maxBuffer, windowsVerbatimArguments }) {
   try {
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    const child = spawn(command, args, {
+      cwd, env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, windowsVerbatimArguments,
+    });
     return await new Promise((resolve) => {
       /** @type {Buffer[]} */
       const chunks = [];
