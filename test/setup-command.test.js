@@ -77,10 +77,15 @@ test('Agent setup requires separate approval for an existing statusline', (t) =>
   assert.equal(existsSync(config), false);
   assert.deepEqual(json(settings), original);
 
-  const approved = run('setup', '--yes', '--replace', '--preset', 'activity');
+  const approved = run('setup', '--yes', '--replace', '--preset', 'activity', '--extra-cmd', 'hostname');
   assert.equal(approved.status, 0, approved.stderr);
   assert.equal(json(config).display.showTools, true);
   assert.equal(JSON.parse(run('doctor').stdout).statusline.state, 'active');
+  const installedWithExtra = json(settings).statusLine.command;
+  assert.equal(installedWithExtra, JSON.parse(run('settings', '--extra-cmd', 'hostname').stdout).statusLine.command);
+  assert.equal(run('install').status, 0);
+  assert.equal(json(settings).statusLine.command, installedWithExtra);
+  assert.equal(run('setup', '--configure-only', '--yes', '--extra-cmd', 'hostname').status, 1);
   assert.equal(run('uninstall').status, 0);
   assert.deepEqual(json(settings), original);
 });

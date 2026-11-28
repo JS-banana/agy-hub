@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
-import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
-import { readCommand } from './runtime/command.js';
+import { basename, delimiter, dirname, join, resolve, win32 } from 'node:path';
+import { isQualifiedPath, readCommand, trustedPathDirectories } from './runtime/command.js';
 
 const readOptions = {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
@@ -10,7 +10,7 @@ const readOptions = {
 };
 
 function commandEnvironment() {
-  const path = process.env.PATH?.split(delimiter).filter(isAbsolute).join(delimiter);
+  const path = trustedPathDirectories().join(delimiter);
   const fallback = process.platform === 'win32'
     ? join(process.env.SystemRoot || 'C:\\Windows', 'System32')
     : '/usr/bin:/bin';
@@ -18,12 +18,11 @@ function commandEnvironment() {
 }
 
 // Resolve an explicit .exe from trusted PATH entries on Windows so CreateProcessW
-// never searches the untrusted repository working directory first.
-function resolveExecutable(name) {
-  if (process.platform !== 'win32') return name;
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!isAbsolute(dir)) continue;
-    const candidate = join(dir, `${name}.exe`);
+// never searches the untrusted repository working directory or another drive's root.
+export function resolveExecutable(name, pathValue = process.env.PATH ?? '', platform = process.platform) {
+  if (platform !== 'win32') return name;
+  for (const dir of trustedPathDirectories(pathValue, platform)) {
+    const candidate = win32.join(dir, `${name}.exe`);
     try {
       if (statSync(candidate).isFile()) return candidate;
     } catch { /* Continue searching PATH. */ }
@@ -126,7 +125,7 @@ function* addWorktreeInfo(git, status, showWorktree) {
   const result = yield git(['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
   if (result.status !== 0) return;
   const rawPaths = result.stdout.replace(/\r?\n$/, '').split(/\r?\n/);
-  if (rawPaths.length !== 3 || !rawPaths.every(isAbsolute)) return;
+  if (rawPaths.length !== 3 || !rawPaths.every((entry) => isQualifiedPath(entry))) return;
   const [root, worktreeGitDir, sharedGitDir] = rawPaths.map((p) => resolve(p));
   status.root = root;
   const worktreesDir = join(sharedGitDir, 'worktrees');
@@ -211,7 +210,7 @@ function* readJjStatus(cwd, io) {
 // Both entry points drive this sequence of reads so command policy, fallbacks
 // and parsing stay in one place. Each yielded read is a result or a promise.
 function* probe(cwd, gitConfig, vcs, jjConfig, io) {
-  if (typeof cwd !== 'string' || !isAbsolute(cwd) || cwd.includes('\0') || (vcs && vcs !== 'git' && vcs !== 'jj')) return null;
+  if (typeof cwd !== 'string' || !isQualifiedPath(cwd) || (vcs && vcs !== 'git' && vcs !== 'jj')) return null;
   const jjRoot = jjConfig?.enabled || vcs === 'jj' ? yield* findJjRoot(cwd, io) : null;
   if (vcs === 'jj' && !jjRoot) return null;
   if (jjRoot) {

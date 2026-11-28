@@ -35,7 +35,7 @@ Hooks retain workspace paths, tool names, relevant filenames, and invocation tim
 - After enabling `display.recordPreview`, run `node src/cli.js preview --last` from the AGY HUD copy to render the most recent recorded frame with the current configuration. The recording substitutes project paths, branch names, session titles, and email addresses. It retains rendering data such as the model, quota, and activity.
 - `node src/cli.js doctor` shows local configuration paths and integration status. `node src/cli.js report` produces a concise diagnostic summary that omits paths, account information, quota values, and log contents.
 - To share quota snapshots between local processes, set `display.externalUsagePath` and `display.externalUsageWritePath`. When a native window expires at a known reset time, AGY HUD discards observations from before that reset. An unexpired snapshot from the same pool can supply a replacement if it was observed at or after the reset and falls within `display.externalUsageFreshnessMs`.
-- To show the first output line of a local command, append `--extra-cmd 'your local command'` to the installed binding and set `AGY_HUD_ALLOW_EXTRA_CMD=1`. AGY HUD preserves this argument when it refreshes a binding that uses the standard form.
+- To show the first output line of a local command, install or update the binding with `node src/cli.js install --extra-cmd 'your local command'` (or `node src/cli.js setup --extra-cmd 'your local command'`) and set `AGY_HUD_ALLOW_EXTRA_CMD=1`. AGY HUD preserves this option when reinstalling or refreshing a managed binding, and `uninstall` restores the previous status line.
 
 ## Verified behavior
 

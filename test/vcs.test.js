@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { ChildProcess, execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { gitStatus, gitStatusAsync } from '../src/git.js';
+import { gitStatus, gitStatusAsync, resolveExecutable } from '../src/git.js';
+import { trustedPathDirectories } from '../src/runtime/command.js';
 
 const gitOptions = { showFileStats: true, showWorktree: true, showDirty: true };
 const gitAvailable = spawnSync('git', ['--version']).status === 0;
@@ -48,6 +49,24 @@ test('a missing Git binary resolves to null and cancels the probe timeout', asyn
   assert.equal(gitStatus(cwd), null);
   context.mock.timers.runAll();
   assert.equal(kill.mock.callCount(), 0);
+});
+
+test('Windows PATH parsing unquotes qualified entries and rejects drive-relative entries', async (context) => {
+  assert.deepEqual(
+    trustedPathDirectories('relative;\\tools;/bin;C:relative;"C:\\Program Files\\Git\\cmd";"\\\\server\\share\\bin";\\\\incomplete', 'win32'),
+    ['C:\\Program Files\\Git\\cmd', '\\\\server\\share\\bin'],
+  );
+  if (process.platform === 'win32' && gitAvailable) {
+    const repo = temp(context);
+    init(repo);
+    const gitExe = resolveExecutable('git');
+    assert.ok(gitExe);
+    const env = process.env;
+    context.after(() => { process.env = env; });
+    process.env = { ...env, PATH: `\\tools;"${dirname(gitExe)}"` };
+    assert.equal(resolveExecutable('git'), gitExe);
+    assert.equal((await statusFromBoth(repo, {})).branch, 'main');
+  }
 });
 
 test('Git combines index and worktree stats, with rename, binary and nested untracked files', { skip: !gitAvailable }, async (context) => {

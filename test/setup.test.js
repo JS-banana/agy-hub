@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, sep } from 'node:path';
+import { basename, delimiter, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { applySetupPreferences, preferences } from '../src/preferences.js';
-import { cliCommand, diagnoseInstallation, install, printSettings, uninstall } from '../src/setup.js';
+import { bindingPaths, cliCommand, diagnoseInstallation, install, printSettings, skillCommand, uninstall } from '../src/setup.js';
 
 const isWindows = process.platform === 'win32';
 const readSettings = async (path) => JSON.parse(await readFile(path, 'utf8'));
@@ -46,25 +46,36 @@ test('session settings quote paths for the shell used by agy and ignore binaries
   } else {
     await symlink(process.execPath, executable);
   }
-  await writeFile(script, 'console.log("ready")');
+  await writeFile(script, 'console.log([process.env.PATH?.includes("R&D") ? "ready-rd" : "ready", ...process.argv.slice(2)].join(":"))');
 
   const { statusLine } = JSON.parse(printSettings({ executable, script }));
   assert.equal(statusLine.type, 'command');
   if (isWindows) assert.doesNotMatch(statusLine.command, /"/, 'Windows command must be quote-free for Go cmd /c');
-  assert.equal(runAgyShell(statusLine.command, { cwd: evilCwd }).replace(/\r\n$/, '\n'), 'ready\n');
+  const pathWithAmpersand = [isWindows ? 'C:\\R&D\\bin' : '/tmp/R&D/bin', process.env.PATH].filter(Boolean).join(delimiter);
+  const env = { ...process.env, PATH: pathWithAmpersand };
+  assert.equal(runAgyShell(statusLine.command, { cwd: evilCwd, env }).replace(/\r\n$/, '\n'), 'ready-rd\n');
+  assert.equal(runAgyShell(`${cliCommand({ executable, script })} hook SessionStart`, { cwd: evilCwd, env }).replace(/\r\n$/, '\n'), 'ready-rd:hook:SessionStart\n');
 });
 
-test('Windows cliCommand encodes script and extraCommand without double quotes and rejects invalid paths', () => {
-  const cmd = cliCommand({
-    executable: 'C:\\Program Files (x86)\\nodejs\\node.exe',
-    script: "C:\\Users\\satna\\user's hud\\src\\cli.js",
-    extraCommand: 'echo "hi" & %PATH%',
-    platform: 'win32',
+test('Windows cliCommand and bindingPaths round-trip extraCommand without expanding %PATH%', () => {
+  const executable = 'C:\\Program Files (x86) & Node\\nodejs\\node.exe';
+  const script = "C:\\Users\\satna\\user's hud\\src\\cli.js";
+  const extraCommand = 'echo "hi" & %PATH%';
+  const cmd = cliCommand({ executable, script, extraCommand, platform: 'win32' });
+  assert.doesNotMatch(cmd, /"|%PATH%/);
+  assert.match(cmd, /^set NoDefaultCurrentDirectoryInExePath=1&&set AGY_HUD_DIR=/);
+  const parsed = bindingPaths(cmd, 'win32');
+  assert.deepEqual(parsed, {
+    executable,
+    script,
+    base: cliCommand({ executable, script, platform: 'win32' }),
+    extraCommand,
   });
-  assert.doesNotMatch(cmd, /"/);
-  assert.match(cmd, /^set NoDefaultCurrentDirectoryInExePath=1&&set PATH=/);
+  assert.equal(bindingPaths(`${cmd} --extra-cmd hostname`, 'win32'), null);
+  assert.match(skillCommand({ executable, script, platform: 'win32' }), /^& \{ /);
   assert.throws(() => cliCommand({ executable: 'C:\\bad\npath\\node.exe', script: 'C:\\cli.js', platform: 'win32' }), /control characters/);
   assert.throws(() => cliCommand({ executable: 'C:\\dir\\node copy.exe', script: 'C:\\cli.js', platform: 'win32' }), /Unsupported Windows executable/);
+  assert.throws(() => cliCommand({ executable: '\\nodejs\\node.exe', script: 'C:\\cli.js', platform: 'win32' }), /Unsupported Windows executable/);
 });
 
 test('install and uninstall preserve a previous status line and other settings', async (context) => {

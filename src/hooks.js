@@ -97,7 +97,9 @@ function scanTools(root) {
 function toolsFingerprint(path) {
   try {
     const info = statSync(path, { bigint: true });
-    return info.isDirectory() ? [info.dev, info.ino, info.mtimeNs, info.ctimeNs].join(':') : null;
+    if (!info.isDirectory()) return null;
+    const entries = readdirSync(path).sort().join(',');
+    return [info.dev, info.ino, info.mtimeNs, info.ctimeNs, entries].join(':');
   } catch { return null; }
 }
 

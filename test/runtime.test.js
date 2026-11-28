@@ -89,9 +89,10 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   writeFileSync(config, JSON.stringify({ gitStatus: { enabled: false }, display: { showConfigCounts: true, showMemoryUsage: true } }));
   recordHook('SessionStart', { conversationId, workspacePaths: [cwd, shared] }, data);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const pidFile = join(root, 'hang.pid');
   const run = (command, allow = '1') => execFileSync(process.execPath, [cli, '--extra-cmd', command], {
     env: { ...process.env, HOME: root, USERPROFILE: root, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: data,
-      AGY_HUD_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
+      AGY_HUD_PID_FILE: pidFile, AGY_HUD_ALLOW_EXTRA_CMD: allow, NO_COLOR: '1', AGY_HUD_DISABLE: '0' },
     input: JSON.stringify({ cwd, model: { display_name: 'Probes' }, conversation_id: conversationId }),
     encoding: 'utf8', timeout: 5000,
   });
@@ -99,7 +100,7 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   const print = `${node} -e "process.stdout.write('extra-label\\nsecond line\\n')"`;
   const noisyStderr = `${node} -e "process.stderr.write('x'.repeat(5000));process.stdout.write('extra-label\\nsecond line\\n')"`;
   const overflowStdout = `${node} -e "process.stdout.write('extra-label\\n' + 'x'.repeat(5000))"`;
-  const hang = `${node} -e "process.stdout.write('extra-label\\n');setTimeout(() => {}, 5000)"`;
+  const hang = `${node} -e "require('node:fs').writeFileSync(process.env.AGY_HUD_PID_FILE, String(process.pid));process.stdout.write('extra-label\\n');setTimeout(() => {}, 30000)"`;
   const labeled = run(print);
   assert.match(labeled, /extra-label/);
   assert.doesNotMatch(labeled, /second line/);
@@ -107,6 +108,9 @@ test('a timed-out extra command leaves memory and hook workspace counts in the f
   assert.doesNotMatch(run(overflowStdout), /extra-label/);
   assert.doesNotMatch(run(print, '0'), /extra-label/);
   const frame = run(hang);
+  const hangPid = Number(execFileSync(process.execPath, ['-e', 'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))', pidFile], { encoding: 'utf8' }));
+  assert.ok(Number.isInteger(hangPid) && hangPid > 0);
+  assert.throws(() => process.kill(hangPid, 0), { code: 'ESRCH' });
   assert.doesNotMatch(frame, /extra-label/);
   assert.match(frame, /\[Probes\]/);
   assert.match(frame, /Approx RAM/);
