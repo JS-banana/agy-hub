@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows (`win32`) support for setup, `cmd.exe` status line and hook command quoting, PowerShell `/agy-hud` skill bindings, `--extra-cmd` probes (with process-tree cleanup on timeout), and Git/Jujutsu status probes (resolving `.exe` binaries from qualified `PATH` entries rather than the repository working directory).
+- `--extra-cmd <command>` option on `install`, `setup`, and `settings` to configure or update the optional status line probe command across platforms while preserving it on reinstall.
+
 ## [0.6.0] - 2026-11-25
 
 ### Added

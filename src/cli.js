@@ -13,7 +13,7 @@ const help = `Usage: agy-hud [command]
 
 With no command, render Antigravity CLI statusline JSON from stdin.
 
-  setup [--configure-only] [--preset <name>] [--prompt-language <language>]
+  setup [--configure-only] [--preset <name>] [--extra-cmd <command>] [--prompt-language <language>]
              Pick a layout, preview it and apply it in the terminal.
              Prompt languages: en (default), zh-Hans, zh-Hant.
              Use --dry-run or --yes for agents, with --set '<JSON patch>'.
@@ -32,8 +32,10 @@ With no command, render Antigravity CLI statusline JSON from stdin.
              Manage the local /agy-hud skill for Antigravity CLI.
   --extra-cmd '<command>'
              Add its first line to the HUD when AGY_HUD_ALLOW_EXTRA_CMD=1.
-  settings   Print a JSON override for agy --settings.
-  install    Set the HUD as the statusline for new agy sessions.
+  settings [--extra-cmd <command>]
+             Print a JSON override for agy --settings.
+  install [--extra-cmd <command>]
+             Set the HUD as the statusline for new agy sessions.
   uninstall  Restore the previous statusline settings.
   --help     Show this help.
 
@@ -116,14 +118,17 @@ async function main([command, ...args]) {
     // "allow" passes the decision to the next hook or agy's existing policy.
     return write(args[0] === 'PreToolUse' ? '{"decision":"allow"}' : '{}');
   }
+  if (command === 'settings' || command === 'install') {
+    const { values } = parseArgs({ args, options: { 'extra-cmd': { type: 'string' } } });
+    const options = values['extra-cmd'] === undefined ? undefined : { extraCommand: values['extra-cmd'] };
+    return write(command === 'settings' ? printSettings(options) : await install(options));
+  }
   if (args.length) throw new Error(`Unexpected argument: ${args[0]}`);
   if (command === 'doctor' || command === 'report') {
     const { diagnostics } = await import('./diagnostics.js');
     return write(JSON.stringify(await diagnostics(command === 'report'), null, 2));
   }
   if (command === 'hooks') return write(JSON.stringify(hookDefinitions(), null, 2));
-  if (command === 'settings') return write(printSettings());
-  if (command === 'install') return write(await install());
   if (command === 'uninstall') return write(await uninstall());
   throw new Error(`Unknown command: ${command}. Run agy-hud --help.`);
 }

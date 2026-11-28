@@ -13,7 +13,7 @@ AGY HUD renders one frame each time `agy` supplies status line data. The default
 | Session, mode, and tasks | Session tokens, current turn cache data, background tasks, and artifact counts come from `agy`. Mode comes from the first populated field among `cycle_mode`, `mode`, and `agent_mode`. Session duration, last reply time, and throughput depend on logs or hooks. The public payload lacks exact cache expiration and background task details. |
 | Cost, memory, and config counts | Session cost uses the reported amount when available. Memory and config counts come from the local system and files. |
 
-OSC 8 file links depend on support in `agy` and the terminal. Installation and VCS probes currently support macOS and Linux.
+OSC 8 file links depend on support in `agy` and the terminal. Installation and VCS probes support macOS, Linux, and Windows.
 
 ## Session cost estimates
 
@@ -35,7 +35,7 @@ Hooks retain workspace paths, tool names, relevant filenames, and invocation tim
 - After enabling `display.recordPreview`, run `node src/cli.js preview --last` from the AGY HUD copy to render the most recent recorded frame with the current configuration. The recording substitutes project paths, branch names, session titles, and email addresses. It retains rendering data such as the model, quota, and activity.
 - `node src/cli.js doctor` shows local configuration paths and integration status. `node src/cli.js report` produces a concise diagnostic summary that omits paths, account information, quota values, and log contents.
 - To share quota snapshots between local processes, set `display.externalUsagePath` and `display.externalUsageWritePath`. When a native window expires at a known reset time, AGY HUD discards observations from before that reset. An unexpired snapshot from the same pool can supply a replacement if it was observed at or after the reset and falls within `display.externalUsageFreshnessMs`.
-- To show the first output line of a local command, append `--extra-cmd 'your local command'` to the installed binding and set `AGY_HUD_ALLOW_EXTRA_CMD=1`. AGY HUD preserves this argument when it refreshes a binding that uses the standard form.
+- To show the first output line of a local command, install or update the binding with `node src/cli.js install --extra-cmd 'your local command'` (or `node src/cli.js setup --extra-cmd 'your local command'`) and set `AGY_HUD_ALLOW_EXTRA_CMD=1`. AGY HUD preserves this option when reinstalling or refreshing a managed binding, and `uninstall` restores the previous status line.
 
 ## Verified behavior
 

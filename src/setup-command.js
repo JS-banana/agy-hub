@@ -11,8 +11,13 @@ export async function runSetup(args) {
     yes: { type: 'boolean' }, preset: { type: 'string' }, set: { type: 'string' },
     'configure-only': { type: 'boolean' }, 'dry-run': { type: 'boolean' }, replace: { type: 'boolean' },
     json: { type: 'boolean' }, plain: { type: 'boolean' }, 'prompt-language': { type: 'string' },
+    'extra-cmd': { type: 'string' },
   } });
   const configureOnly = values['configure-only'] === true;
+  const extraCommand = values['extra-cmd'];
+  if (configureOnly && extraCommand !== undefined) {
+    throw new Error('--extra-cmd cannot be used with --configure-only.');
+  }
   const dryRun = values['dry-run'] === true;
   const interactive = !dryRun && !values.yes;
   const promptLanguage = values['prompt-language'] ?? 'en';
@@ -31,7 +36,7 @@ export async function runSetup(args) {
   /** @param {Record<string, unknown>} draft */
   const planPreferences = (draft) => previewPreferences(draft, { guided: true });
   const candidate = planPreferences(patch);
-  const binding = configureOnly ? null : await diagnoseInstallation();
+  const binding = configureOnly ? null : await diagnoseInstallation({ extraCommand });
   const customStatusline = binding?.state === 'custom';
   const bindingBlocked = ['unsupported', 'unreadable', 'invalid-backup', 'too-large'].includes(binding?.state ?? '');
   const blockedBindingMessage = 'AGY HUD cannot update this statusline. Run agy-hud doctor for details.';
@@ -75,6 +80,7 @@ export async function runSetup(args) {
     changed = (await applySetupPreferences(patch, async () => null)).changed;
   } else {
     installed = await install({
+      extraCommand,
       replaceCustom: values.replace === true || (interactive && customStatusline),
       apply: async (commit) => {
         const result = await applySetupPreferences(patch, commit);

@@ -1,15 +1,30 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { chmod, lstat, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, delimiter, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { applySetupPreferences, preferences } from '../src/preferences.js';
-import { diagnoseInstallation, install, printSettings, uninstall } from '../src/setup.js';
+import { bindingPaths, cliCommand, diagnoseInstallation, install, printSettings, skillCommand, uninstall } from '../src/setup.js';
 
-const posix = { skip: process.platform === 'win32' };
+const isWindows = process.platform === 'win32';
 const readSettings = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const backup = (path) => `${path}.agy-hud-backup.json`;
+
+function runAgyShell(command, options = {}) {
+  if (isWindows) {
+    // Match agy's Go statusline_runner.go: exec.Command("cmd", "/c", command)
+    // which escapes double quotes via EscapeArg, AND verify Node shell:true too.
+    const goResult = spawnSync(process.env.ComSpec || 'cmd.exe', ['/c', command], { encoding: 'utf8', ...options });
+    if (goResult.error) throw goResult.error;
+    assert.equal(goResult.status, 0, goResult.stderr);
+    const shellResult = spawnSync(command, { shell: true, encoding: 'utf8', ...options });
+    assert.equal(shellResult.status, 0, shellResult.stderr);
+    assert.equal(shellResult.stdout, goResult.stdout);
+    return goResult.stdout;
+  }
+  return execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8', ...options });
+}
 
 async function temporaryDirectory(context) {
   const directory = await mkdtemp(join(tmpdir(), 'agy-hud-setup-'));
@@ -17,29 +32,65 @@ async function temporaryDirectory(context) {
   return directory;
 }
 
-test('session settings quote paths for the shell used by agy', posix, async (context) => {
+test('session settings quote paths for the shell used by agy and ignore binaries in cwd', async (context) => {
   const directory = await temporaryDirectory(context);
-  const executable = join(directory, "Node's executable");
-  const script = join(directory, "status 'line' $(date).cjs");
-  await symlink(process.execPath, executable);
-  await writeFile(script, 'console.log("ready")');
+  const binDir = join(directory, "Program Files (x86) & Node's Dir");
+  const evilCwd = join(directory, 'untrusted-cwd');
+  await mkdir(binDir);
+  await mkdir(evilCwd);
+  const executable = isWindows ? join(binDir, 'node.exe') : join(binDir, "Node's executable");
+  const script = join(directory, isWindows ? "status 'line' $(date) & %TEMP%.cjs" : "status 'line' $(date).cjs");
+  if (isWindows) {
+    await copyFile(process.execPath, executable);
+    await copyFile(join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'whoami.exe'), join(evilCwd, 'node.exe'));
+  } else {
+    await symlink(process.execPath, executable);
+  }
+  await writeFile(script, 'console.log([process.env.PATH?.includes("R&D") ? "ready-rd" : "ready", ...process.argv.slice(2)].join(":"))');
 
   const { statusLine } = JSON.parse(printSettings({ executable, script }));
   assert.equal(statusLine.type, 'command');
-  assert.equal(execFileSync('/bin/sh', ['-c', statusLine.command], { encoding: 'utf8' }), 'ready\n');
+  if (isWindows) assert.doesNotMatch(statusLine.command, /"/, 'Windows command must be quote-free for Go cmd /c');
+  const pathWithAmpersand = [isWindows ? 'C:\\R&D\\bin' : '/tmp/R&D/bin', process.env.PATH].filter(Boolean).join(delimiter);
+  const env = { ...process.env, PATH: pathWithAmpersand };
+  assert.equal(runAgyShell(statusLine.command, { cwd: evilCwd, env }).replace(/\r\n$/, '\n'), 'ready-rd\n');
+  assert.equal(runAgyShell(`${cliCommand({ executable, script })} hook SessionStart`, { cwd: evilCwd, env }).replace(/\r\n$/, '\n'), 'ready-rd:hook:SessionStart\n');
 });
 
-test('install and uninstall preserve a previous status line and other settings', posix, async (context) => {
+test('Windows cliCommand and bindingPaths round-trip extraCommand without expanding %PATH%', () => {
+  const executable = 'C:\\Program Files (x86) & Node\\nodejs\\node.exe';
+  const script = "C:\\Users\\satna\\user's hud\\src\\cli.js";
+  const extraCommand = 'echo "hi" & %PATH%';
+  const cmd = cliCommand({ executable, script, extraCommand, platform: 'win32' });
+  assert.doesNotMatch(cmd, /"|%PATH%/);
+  assert.match(cmd, /^set NoDefaultCurrentDirectoryInExePath=1&&set AGY_HUD_DIR=/);
+  const parsed = bindingPaths(cmd, 'win32');
+  assert.deepEqual(parsed, {
+    executable,
+    script,
+    base: cliCommand({ executable, script, platform: 'win32' }),
+    extraCommand,
+  });
+  assert.equal(bindingPaths(`${cmd} --extra-cmd hostname`, 'win32'), null);
+  assert.match(skillCommand({ executable, script, platform: 'win32' }), /^& \{ /);
+  assert.throws(() => cliCommand({ executable: 'C:\\bad\npath\\node.exe', script: 'C:\\cli.js', platform: 'win32' }), /control characters/);
+  assert.throws(() => cliCommand({ executable: 'C:\\dir\\node copy.exe', script: 'C:\\cli.js', platform: 'win32' }), /Unsupported Windows executable/);
+  assert.throws(() => cliCommand({ executable: '\\nodejs\\node.exe', script: 'C:\\cli.js', platform: 'win32' }), /Unsupported Windows executable/);
+});
+
+test('install and uninstall preserve a previous status line and other settings', async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'settings.json');
   const original = { statusLine: { type: 'command', command: 'old-hud', padding: 1 }, telemetry: false };
   await writeFile(settingsPath, JSON.stringify(original));
-  await chmod(settingsPath, 0o640);
+  if (!isWindows) await chmod(settingsPath, 0o640);
 
   await install({ settingsPath });
   const installed = await readSettings(settingsPath);
   assert.deepEqual(installed, { ...original, ...JSON.parse(printSettings()) });
-  assert.equal((await stat(settingsPath)).mode & 0o777, 0o640);
-  assert.equal((await stat(backup(settingsPath))).mode & 0o777, 0o600);
+  if (!isWindows) {
+    assert.equal((await stat(settingsPath)).mode & 0o777, 0o640);
+    assert.equal((await stat(backup(settingsPath))).mode & 0o777, 0o600);
+  }
   const journal = await readFile(backup(settingsPath), 'utf8');
   assert.match(await install({ settingsPath }), /already configured/);
   assert.equal(await readFile(backup(settingsPath), 'utf8'), journal);
@@ -54,7 +105,7 @@ test('install and uninstall preserve a previous status line and other settings',
   assert.match(await uninstall({ settingsPath }), /no saved installation/);
 });
 
-test('uninstall removes a settings file created solely for AGY HUD', posix, async (context) => {
+test('uninstall removes a settings file created solely for AGY HUD', async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'nested', 'settings.json');
   assert.match(await uninstall({ settingsPath }), /no saved installation/);
   await install({ settingsPath });
@@ -65,7 +116,7 @@ test('uninstall removes a settings file created solely for AGY HUD', posix, asyn
   await assert.rejects(stat(backup(settingsPath)), { code: 'ENOENT' });
 });
 
-test('replacement of the status line outside setup preserves the new command', posix, async (context) => {
+test('replacement of the status line outside setup preserves the new command', async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'settings.json');
   await install({ settingsPath });
   const replacement = { statusLine: { command: 'later-hud' } };
@@ -80,7 +131,7 @@ test('replacement of the status line outside setup preserves the new command', p
   assert.deepEqual(await readSettings(settingsPath), replacement);
 });
 
-test('concurrent installs retain one copy of the original status line', posix, async (context) => {
+test('concurrent installs retain one copy of the original status line', async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'settings.json');
   const original = { statusLine: { command: 'old-hud' } };
   await writeFile(settingsPath, JSON.stringify(original));
@@ -96,28 +147,37 @@ test('concurrent installs retain one copy of the original status line', posix, a
   assert.deepEqual(await readSettings(settingsPath), original);
 });
 
-test('install preserves settings symlinks and refuses malformed settings', posix, async (context) => {
+test('install preserves settings symlinks and refuses malformed settings', async (context) => {
   const directory = await temporaryDirectory(context);
   const target = join(directory, 'dotfiles.json');
   const settingsPath = join(directory, 'settings.json');
-  await symlink(target, settingsPath);
-  await assert.rejects(install({ settingsPath }), { code: 'ENOENT' });
-  assert.ok((await lstat(settingsPath)).isSymbolicLink());
+  let linked = false;
+  try {
+    await symlink(target, settingsPath);
+    linked = true;
+  } catch (error) {
+    if (!isWindows || error.code !== 'EPERM') throw error;
+  }
+  if (linked) {
+    await assert.rejects(install({ settingsPath }), { code: 'ENOENT' });
+    assert.ok((await lstat(settingsPath)).isSymbolicLink());
+  }
 
-  await writeFile(target, 'broken JSON');
+  const file = linked ? target : settingsPath;
+  await writeFile(file, 'broken JSON');
   await assert.rejects(install({ settingsPath }), /Invalid JSON/);
-  assert.equal(await readFile(target, 'utf8'), 'broken JSON');
-  await assert.rejects(stat(backup(target)), { code: 'ENOENT' });
+  assert.equal(await readFile(file, 'utf8'), 'broken JSON');
+  await assert.rejects(stat(backup(file)), { code: 'ENOENT' });
 
-  await writeFile(target, '{}');
+  await writeFile(file, '{}');
   await install({ settingsPath });
-  assert.ok((await lstat(settingsPath)).isSymbolicLink());
-  assert.deepEqual(await readSettings(target), JSON.parse(printSettings()));
+  if (linked) assert.ok((await lstat(settingsPath)).isSymbolicLink());
+  assert.deepEqual(await readSettings(file), JSON.parse(printSettings()));
   await uninstall({ settingsPath });
-  assert.deepEqual(await readSettings(target), {});
+  assert.deepEqual(await readSettings(file), {});
 });
 
-test('diagnostics distinguish a custom command, a moved installation, disabled and active settings', posix, async (context) => {
+test('diagnostics distinguish a custom command, a moved installation, disabled and active settings', async (context) => {
   const directory = await temporaryDirectory(context);
   const settingsPath = join(directory, 'settings.json');
   const script = join(directory, "old user's hud.js");
@@ -138,7 +198,7 @@ test('diagnostics distinguish a custom command, a moved installation, disabled a
   assert.equal((await diagnoseInstallation({ settingsPath })).state, 'disabled');
 });
 
-test('refuses changes that exceed the settings or backup limit before writing either file', posix, async (context) => {
+test('refuses changes that exceed the settings or backup limit before writing either file', async (context) => {
   const settingsPath = join(await temporaryDirectory(context), 'settings.json');
   const limit = 1024 * 1024;
   const originalSettings = JSON.stringify({ unrelated: 'a'.repeat(limit - 40) });
@@ -148,7 +208,7 @@ test('refuses changes that exceed the settings or backup limit before writing ei
     assert.equal((await diagnoseInstallation({ settingsPath })).state, 'too-large');
     await assert.rejects(install({ settingsPath }), (error) => {
       assert.match(error.message, /would exceed/);
-      assert.ok(error.message.includes(`/${basename(output)} would exceed`));
+      assert.ok(error.message.includes(`${sep}${basename(output)} would exceed`));
       return true;
     });
     assert.equal(await readFile(settingsPath, 'utf8'), input);
@@ -156,12 +216,12 @@ test('refuses changes that exceed the settings or backup limit before writing ei
   }
 });
 
-test('rebinds an extended command and restores the original statusline', posix, async (context) => {
+test('rebinds an extended command and restores the original statusline', async (context) => {
   const directory = await temporaryDirectory(context);
   const settingsPath = join(directory, 'settings.json');
-  const script = join(directory, "old version's cli.js");
+  const script = join(directory, "old version's %TEMP% cli.js");
   const original = { statusLine: { type: 'command', command: 'old-hud' } };
-  const extraCommand = `printf "%s" "today's project"`;
+  const extraCommand = `printf "%s" "today's %PATH% project\\"`;
   await writeFile(script, '');
   await writeFile(settingsPath, JSON.stringify(original));
   await install({ settingsPath, script });
@@ -182,7 +242,7 @@ test('rebinds an extended command and restores the original statusline', posix, 
   assert.deepEqual(await readSettings(settingsPath), original);
 });
 
-test('restores HUD preferences and their prior undo record if settings change before commit', posix, async (context) => {
+test('restores HUD preferences and their prior undo record if settings change before commit', async (context) => {
   const directory = await temporaryDirectory(context);
   const settingsPath = join(directory, 'settings.json');
   const configPath = join(directory, 'hud.json');

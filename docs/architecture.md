@@ -31,6 +31,6 @@ Setup locks the Antigravity settings and checks the planned writes before saving
 
 ## Verification
 
-Run `npm run check` for type checks, behavior tests, and package verification. The package check unpacks the release archive into two local directories and uses a temporary home directory. It verifies that the status line renders from stdin, a stale binding can be refreshed, and uninstall restores the original status line. GitHub CI runs the checks on macOS and Linux with Node.js 22 and 24. The macOS Node.js 24 job installs `jj` and runs the Jujutsu tests.
+Run `npm run check` for type checks, behavior tests, and package verification. The package check unpacks the release archive into two local directories and uses a temporary home directory. It verifies that the status line renders from stdin, a stale binding can be refreshed, and uninstall restores the original status line. GitHub CI runs the checks on macOS, Linux, and Windows with Node.js 22 and 24. The macOS Node.js 24 job installs `jj` and runs the Jujutsu tests.
 
 For a new option, check the default, validation, and rendered output. For rendering changes, test normal width, narrow width, and plain output. The integration reference covers Antigravity fields and hooks. [Antigravity integration](integration.md)

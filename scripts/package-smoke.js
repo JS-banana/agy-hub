@@ -17,10 +17,15 @@ const npmUserConfig = join(sandbox, 'npm-user.conf');
 const npmGlobalConfig = join(sandbox, 'npm-global.conf');
 const archiveDir = join(sandbox, 'archive');
 
+const isWindows = process.platform === 'win32';
+const powershell = isWindows
+  ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  : '';
 const env = {
   ...process.env,
   HOME: home,
-  PATH: [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter),
+  USERPROFILE: home,
+  PATH: [isWindows ? 'C:\\R&D\\bin' : '', dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter),
   XDG_CONFIG_HOME: join(home, '.config'),
   XDG_CACHE_HOME: join(home, '.cache'),
   AGY_HUD_CONFIG: configPath,
@@ -29,11 +34,12 @@ const env = {
 };
 delete env.AGY_HUD_DISABLE;
 
-function run(executable, args, { input, allowFailure = false, cwd = sandbox } = {}) {
+function run(executable, args, { input, allowFailure = false, cwd = sandbox, shell = false, extraEnv } = {}) {
   const result = spawnSync(executable, args, {
     cwd,
-    env,
+    env: extraEnv ? { ...env, ...extraEnv } : env,
     input,
+    shell,
     encoding: 'utf8',
     timeout: 30_000,
     killSignal: 'SIGKILL',
@@ -45,12 +51,30 @@ function run(executable, args, { input, allowFailure = false, cwd = sandbox } = 
   return result;
 }
 
+function runStatusLine(command, options) {
+  // Match agy's Go statusline_runner.go on Windows: exec.Command("cmd", "/c", command)
+  return isWindows ? run(process.env.ComSpec || 'cmd.exe', ['/c', command], options) : run('/bin/sh', ['-c', command], options);
+}
+
+function runSkill(command, options) {
+  return isWindows
+    ? run(powershell, ['-NoProfile', '-NonInteractive', '-Command', `${command}; exit $LASTEXITCODE`], options)
+    : run('/bin/sh', ['-c', command], options);
+}
+
+function runNpm(args) {
+  const bundledNpm = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (isWindows && existsSync(bundledNpm)) return run(process.execPath, [bundledNpm, ...args]);
+  return run(isWindows ? 'npm.cmd' : 'npm', args, { shell: isWindows });
+}
+
 const npmOptions = ['--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', join(sandbox, 'npm-cache'),
   '--userconfig', npmUserConfig, '--globalconfig', npmGlobalConfig];
 
 function extractArchive(directory, archive) {
   mkdirSync(directory);
-  run('tar', ['-xzf', archive, '-C', directory, '--strip-components=1']);
+  const tar = isWindows ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+  run(tar, ['-xzf', archive, '-C', directory, '--strip-components=1']);
   return (args, options) => run(process.execPath, [join(directory, 'src', 'cli.js'), ...args], options);
 }
 
@@ -58,7 +82,8 @@ function installedSkillCommand(cli, skill) {
   const contents = readFileSync(skill, 'utf8');
   assert.match(contents, /name: agy-hud/);
   const prefix = /^## Installed command\n\n    ([^\n]+)$/m.exec(contents)?.[1];
-  assert.equal(prefix, JSON.parse(cli(['settings']).stdout).statusLine.command);
+  assert.ok(prefix, 'Skill file must contain an Installed command prefix');
+  if (!isWindows) assert.equal(prefix, JSON.parse(cli(['settings']).stdout).statusLine.command);
   return prefix;
 }
 
@@ -68,14 +93,13 @@ function settings() {
 
 try {
   assert.ok(Number(process.versions.node.split('.')[0]) >= 22, 'The package must be tested on Node.js 22 or newer');
-  assert.notEqual(process.platform, 'win32', 'The full install smoke test requires macOS or Linux');
   mkdirSync(stateDirectory, { recursive: true });
   mkdirSync(workspace);
   mkdirSync(archiveDir);
   writeFileSync(npmUserConfig, '');
   writeFileSync(npmGlobalConfig, '');
 
-  const packedResult = JSON.parse(run('npm', ['pack', project, '--json', '--pack-destination', archiveDir, ...npmOptions]).stdout);
+  const packedResult = JSON.parse(runNpm(['pack', project, '--json', '--pack-destination', archiveDir, ...npmOptions]).stdout);
   // npm 12 keys its JSON report by package name; earlier versions return an array.
   const packed = Array.isArray(packedResult) ? packedResult[0] : packedResult[manifest.name];
   assert.ok(packed, `npm pack must report the ${manifest.name} archive`);
@@ -104,13 +128,15 @@ try {
   const initializedConfig = readFileSync(configPath, 'utf8');
   first(['init', '--preset', 'compact'], { allowFailure: true });
   assert.equal(readFileSync(configPath, 'utf8'), initializedConfig, 'Init must preserve an existing configuration');
-  const plan = JSON.parse(first(['setup', '--dry-run', '--configure-only', '--preset', 'compact', '--json']).stdout);
+  const patch = '{"display":{"showTools":true}}';
+  const plan = JSON.parse(first(['setup', '--dry-run', '--configure-only', '--preset', 'compact', '--set', patch, '--json']).stdout);
   assert.match(plan.preview, /45% \| my-project/);
+  assert.match(plan.preview, /✓ Read/);
   assert.equal(readFileSync(configPath, 'utf8'), initializedConfig);
   const skill = first(['skill', 'path']).stdout.trim();
   first(['skill', 'install']);
   const originalSkill = installedSkillCommand(first, skill);
-  const agentPlan = run('/bin/sh', ['-c', `${originalSkill} setup --dry-run --configure-only --preset compact --json`], { cwd: workspace });
+  const agentPlan = runSkill(`${originalSkill} setup --dry-run --configure-only --preset compact --set '${patch}' --json`, { cwd: workspace });
   assert.equal(JSON.parse(agentPlan.stdout).preview, plan.preview);
   assert.ok(!existsSync(settingsPath), 'Registering or previewing through the skill should leave the statusline untouched');
 
@@ -119,13 +145,14 @@ try {
     theme: 'original-theme',
   };
   writeFileSync(settingsPath, JSON.stringify(previousSettings));
-  const replacement = run('/bin/sh', ['-c', `${originalSkill} setup --dry-run --json`], { cwd: workspace });
+  const replacement = runSkill(`${originalSkill} setup --dry-run --json`, { cwd: workspace });
   assert.equal(JSON.parse(replacement.stdout).needsReplacement, true);
-  run('/bin/sh', ['-c', `${originalSkill} setup --yes --replace`], { cwd: workspace });
+  runSkill(`${originalSkill} setup --yes --replace --extra-cmd 'echo smoke-extra'`, { cwd: workspace });
   const oldCommand = settings().statusLine.command;
   assert.notEqual(oldCommand, previousSettings.statusLine.command);
   assert.equal(settings().theme, previousSettings.theme);
   assert.equal(JSON.parse(first(['doctor']).stdout).node, process.versions.node);
+  assert.equal(JSON.parse(first(['doctor']).stdout).statusline.state, 'active');
 
   first(['set', '{"display":{"recordPreview":true,"showAuthUser":true}}']);
   const input = JSON.stringify({
@@ -137,8 +164,9 @@ try {
     quota: { 'gemini-5h': { remaining_fraction: 0.75, reset_in_seconds: 5400 } },
     subagents: [{ name: 'smoke-helper', status: 'running' }],
   });
-  const live = run('/bin/sh', ['-c', oldCommand], { input }).stdout;
+  const live = runStatusLine(oldCommand, { input, extraEnv: { AGY_HUD_ALLOW_EXTRA_CMD: '1' } }).stdout;
   assert.match(live, /\[Gemini Smoke\]/);
+  assert.match(live, /smoke-extra/);
   assert.match(live, /Context .*Usage /);
   assert.match(live, /◐ smoke-helper/);
   const replay = first(['preview', '--last', '--plain']).stdout;
@@ -150,7 +178,7 @@ try {
 
   const second = extractArchive(join(sandbox, 'replacement install'), archive);
   renameSync(firstDirectory, join(sandbox, 'retired install'));
-  assert.notEqual(run('/bin/sh', ['-c', oldCommand], { input, allowFailure: true }).status, 0);
+  assert.notEqual(runStatusLine(oldCommand, { input, allowFailure: true }).status, 0);
   const stale = JSON.parse(second(['doctor']).stdout);
   assert.equal(stale.configuration.valid, true);
   assert.equal(stale.statusline.state, 'broken');
@@ -158,12 +186,14 @@ try {
   const newCommand = settings().statusLine.command;
   assert.notEqual(newCommand, oldCommand);
   assert.equal(JSON.parse(second(['doctor']).stdout).statusline.state, 'active');
-  assert.match(run('/bin/sh', ['-c', newCommand], { input }).stdout, /\[Gemini Smoke\]/);
+  const reboundLive = runStatusLine(newCommand, { input, extraEnv: { AGY_HUD_ALLOW_EXTRA_CMD: '1' } }).stdout;
+  assert.match(reboundLive, /\[Gemini Smoke\]/);
+  assert.match(reboundLive, /smoke-extra/);
   second(['skill', 'install']);
   const reboundSkill = installedSkillCommand(second, skill);
   assert.notEqual(reboundSkill, originalSkill);
-  assert.equal(reboundSkill, newCommand);
-  assert.match(run('/bin/sh', ['-c', `${reboundSkill} preview --plain`], { cwd: workspace }).stdout, /Context/);
+  if (!isWindows) assert.equal(reboundSkill, newCommand);
+  assert.match(runSkill(`${reboundSkill} preview --plain`, { cwd: workspace }).stdout, /Context/);
   second(['skill', 'uninstall']);
   assert.ok(!existsSync(skill));
 

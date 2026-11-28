@@ -8,7 +8,6 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-const posix = { skip: process.platform === 'win32' };
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
 function workspace(t) {
@@ -21,7 +20,7 @@ function workspace(t) {
     config, settings: join(directory, 'settings.json'),
     run: (...args) => spawnSync(process.execPath, [cli, ...args], {
       encoding: 'utf8', timeout: 5000, input: '',
-      env: { ...process.env, HOME: home, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(home, 'data'), NO_COLOR: '1' },
+      env: { ...process.env, HOME: home, USERPROFILE: home, AGY_HUD_CONFIG: config, AGY_HUD_DATA_DIR: join(home, 'data'), NO_COLOR: '1' },
     }),
   };
 }
@@ -65,7 +64,7 @@ test('validates setup prompt language separately from HUD labels', (t) => {
   assert.deepEqual(json(config), original);
 });
 
-test('Agent setup requires separate approval for an existing statusline', posix, (t) => {
+test('Agent setup requires separate approval for an existing statusline', (t) => {
   const { run, config, settings } = workspace(t);
   const original = { statusLine: { type: 'command', command: 'printf other-hud' }, theme: 'dark' };
   writeFileSync(settings, JSON.stringify(original));
@@ -78,15 +77,20 @@ test('Agent setup requires separate approval for an existing statusline', posix,
   assert.equal(existsSync(config), false);
   assert.deepEqual(json(settings), original);
 
-  const approved = run('setup', '--yes', '--replace', '--preset', 'activity');
+  const approved = run('setup', '--yes', '--replace', '--preset', 'activity', '--extra-cmd', 'hostname');
   assert.equal(approved.status, 0, approved.stderr);
   assert.equal(json(config).display.showTools, true);
   assert.equal(JSON.parse(run('doctor').stdout).statusline.state, 'active');
+  const installedWithExtra = json(settings).statusLine.command;
+  assert.equal(installedWithExtra, JSON.parse(run('settings', '--extra-cmd', 'hostname').stdout).statusLine.command);
+  assert.equal(run('install').status, 0);
+  assert.equal(json(settings).statusLine.command, installedWithExtra);
+  assert.equal(run('setup', '--configure-only', '--yes', '--extra-cmd', 'hostname').status, 1);
   assert.equal(run('uninstall').status, 0);
   assert.deepEqual(json(settings), original);
 });
 
-test('setup plans detect locked HUD preferences and invalid backups before enabling the binding', posix, (t) => {
+test('setup plans detect locked HUD preferences and invalid backups before enabling the binding', (t) => {
   const { run, config, settings } = workspace(t);
   const backup = `${settings}.agy-hud-backup.json`;
   const original = { statusLine: { command: 'previous-hud' } };
@@ -132,7 +136,7 @@ test('guided configuration inserts requested activity and honors an explicit ord
   assert.doesNotMatch(frame, /git:\(|auth\.ts|\?1/);
 });
 
-test('local Agent skill is installable and preserves a modified copy', posix, (t) => {
+test('local Agent skill is installable and preserves a modified copy', (t) => {
   const { run, settings } = workspace(t);
   const path = run('skill', 'path').stdout.trim();
   assert.equal(run('skill', 'install').status, 0);
